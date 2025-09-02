@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+backend/venv/
+backend/__pycache__/
+
+# Production builds
+dist/
+build/
+
+# Development
+.vscode/
+.DS_Store
+*.log
+
+# Python
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+.pytest_cache/
+
+# Database
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Model cache
+models/
+
+# Electron
+*.dmg
+*.exe
+*.AppImage
+*.deb
+*.rpm
+
+# Environment
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+/.claude
+/plan

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EchoTap - Archive</title>
+  <link href="http://localhost:5173/@vite/client" type="module">
+  <style>
+    html, body, #archive-app {
+      margin: 0;
+      padding: 0;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+      -webkit-app-region: drag;
+      background: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    * {
+      box-sizing: border-box;
+    }
+    
+    /* Dark mode detection */
+    .dark-mode {
+      color-scheme: dark;
+    }
+  </style>
+</head>
+<body>
+  <div id="archive-app"></div>
+  <script type="module" src="/src/renderer/archive.js"></script>
+</body>
+</html>
