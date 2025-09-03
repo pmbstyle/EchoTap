@@ -33,43 +33,59 @@
       <!-- Center Section: Main Action -->
       <div class="flex items-center gap-3 flex-1 justify-center">
         <button
-          class="w-7 h-7 rounded-full border-0 flex items-center justify-center cursor-pointer transition-all duration-200 shadow-sm hover:scale-110 active:scale-95"
-          :class="
-            isRecording
-              ? 'bg-red-500 text-white shadow-red-500/30 shadow-lg'
-              : 'bg-black/10 dark:bg-white/15 text-black/80 dark:text-white/90 hover:bg-black/15 dark:hover:bg-white/20'
-          "
-          @click="$emit('toggle-recording')"
-          title="Toggle Recording (⌘R)"
+          class="w-7 h-7 rounded-full border-0 flex items-center justify-center transition-all duration-200 shadow-sm"
+          :class="[
+            !isConnected
+              ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+              : isRecording
+              ? 'bg-red-500 text-white shadow-red-500/30 shadow-lg cursor-pointer hover:scale-110 active:scale-95'
+              : 'bg-black/10 dark:bg-white/15 text-black/80 dark:text-white/90 hover:bg-black/15 dark:hover:bg-white/20 cursor-pointer hover:scale-110 active:scale-95'
+          ]"
+          @click="isConnected ? $emit('toggle-recording') : null"
+          :disabled="!isConnected"
+          :title="!isConnected ? 'Initializing...' : 'Toggle Recording (⌘R)'"
         >
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+          <!-- Loading spinner when not connected -->
+          <svg v-if="!isConnected" class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" opacity="0.3"/>
+            <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <!-- Microphone icon when connected -->
+          <svg v-else class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
             <path
               d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"
             />
           </svg>
         </button>
         <span
-          class="text-sm font-medium text-black/80 dark:text-white/90 whitespace-nowrap"
+          class="text-sm font-medium whitespace-nowrap"
+          :class="!isConnected ? 'text-gray-500 dark:text-gray-400' : 'text-black/80 dark:text-white/90'"
         >
-          {{ isRecording ? "Listening…" : "Start Recording" }}
+          {{ !isConnected ? "Initializing..." : isRecording ? "Listening…" : "Start Recording" }}
         </span>
       </div>
 
       <!-- Right Section: Controls -->
       <div class="flex items-center gap-1">
         <button
-          class="w-8 h-8 rounded-full border-0 bg-transparent text-black/60 dark:text-white/70 flex items-center justify-center cursor-pointer transition-all duration-200 hover:bg-black/8 dark:hover:bg-white/10 hover:text-black/80 dark:hover:text-white/90 active:scale-95"
+          class="w-8 h-8 rounded-full border-0 flex items-center justify-center cursor-pointer transition-all duration-200 active:scale-95"
+          :class="transcriptWindowOpen 
+            ? 'bg-blue-500/15 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400' 
+            : 'bg-transparent text-black/60 dark:text-white/70 hover:bg-black/8 dark:hover:bg-white/10 hover:text-black/80 dark:hover:text-white/90'"
           @click="$emit('show-transcript')"
-          title="Transcript (⌘T)"
+          :title="transcriptWindowOpen ? 'Close Transcript (⌘T)' : 'Open Transcript (⌘T)'"
         >
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
             <path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z" />
           </svg>
         </button>
         <button
-          class="w-8 h-8 rounded-full border-0 bg-transparent text-black/60 dark:text-white/70 flex items-center justify-center cursor-pointer transition-all duration-200 hover:bg-black/8 dark:hover:bg-white/10 hover:text-black/80 dark:hover:text-white/90 active:scale-95"
+          class="w-8 h-8 rounded-full border-0 flex items-center justify-center cursor-pointer transition-all duration-200 active:scale-95"
+          :class="archiveWindowOpen 
+            ? 'bg-green-500/15 dark:bg-green-500/20 text-green-600 dark:text-green-400' 
+            : 'bg-transparent text-black/60 dark:text-white/70 hover:bg-black/8 dark:hover:bg-white/10 hover:text-black/80 dark:hover:text-white/90'"
           @click="$emit('show-archive')"
-          title="Archive (⌘Y)"
+          :title="archiveWindowOpen ? 'Close Archive (⌘Y)' : 'Open Archive (⌘Y)'"
         >
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
             <path
@@ -120,6 +136,18 @@ export default {
       default: "",
     },
     isDarkMode: {
+      type: Boolean,
+      default: false,
+    },
+    isConnected: {
+      type: Boolean,
+      default: false,
+    },
+    transcriptWindowOpen: {
+      type: Boolean,
+      default: false,
+    },
+    archiveWindowOpen: {
       type: Boolean,
       default: false,
     },

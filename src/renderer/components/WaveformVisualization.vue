@@ -80,11 +80,19 @@ export default {
 
       // Update and draw bars
       bars.forEach((bar, index) => {
-        // Smooth animation towards target
+        // Much more responsive animation for real-time waveform
         const diff = bar.targetHeight - bar.height
-        bar.velocity += diff * 0.1
-        bar.velocity *= 0.8 // Damping
-        bar.height += bar.velocity
+        if (props.isRecording && props.data && props.data.length > 0) {
+          // Real data - very responsive, minimal smoothing
+          bar.velocity += diff * 0.35
+          bar.velocity *= 0.65
+          bar.height += bar.velocity
+        } else {
+          // Fallback animation - can be smoother
+          bar.velocity += diff * 0.1
+          bar.velocity *= 0.8
+          bar.height += bar.velocity
+        }
 
         // Ensure minimum height
         bar.height = Math.max(bar.height, props.minHeight)
@@ -103,19 +111,26 @@ export default {
 
     // Update bars based on audio data or state
     const updateBars = () => {
-      if (props.isRecording && props.data.length > 0) {
-        // Use actual audio data
-        const audioData = props.data.slice(-props.maxBars)
+      if (props.isRecording && props.data && props.data.length > 0) {
+        // Use actual audio data - ensure we have exactly maxBars values
+        const audioData = props.data.slice(0, props.maxBars)
+        
+        // Pad with baseline if needed
+        while (audioData.length < props.maxBars) {
+          audioData.push(0.05)
+        }
+        
         targetBars = audioData.map(amplitude => ({
           targetHeight: props.minHeight + (amplitude * (props.maxHeight - props.minHeight))
         }))
       } else if (props.isRecording) {
-        // Generate animated bars while recording (no audio data yet)
+        // Minimal animation while waiting for real data - don't compete with real data
         targetBars = Array(props.maxBars).fill().map((_, index) => {
-          const phase = Date.now() * 0.01 + index * 0.5
-          const amplitude = (Math.sin(phase) + 1) / 2
+          // Simple, predictable pattern that won't interfere
+          const baseHeight = props.minHeight + 2
+          const variation = Math.sin(Date.now() * 0.005 + index * 0.3) * 1
           return {
-            targetHeight: props.minHeight + amplitude * (props.maxHeight - props.minHeight) * 0.7
+            targetHeight: baseHeight + Math.abs(variation)
           }
         })
       } else {

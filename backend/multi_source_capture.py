@@ -323,29 +323,69 @@ class MultiSourceAudioCapture:
     def get_waveform_data(self) -> list:
         """Get waveform visualization data"""
         try:
+            # Always generate exactly 20 samples for consistent visualization
+            target_length = 20
             waveform = []
             
             # Use microphone data if available
-            if self.microphone_buffer:
-                recent_data = list(self.microphone_buffer)[-1:]
-                for data in recent_data:
-                    audio_np = np.frombuffer(data, dtype=np.int16)
-                    rms = np.sqrt(np.mean(audio_np.astype(np.float32) ** 2))
-                    normalized_rms = float(min(1.0, rms / 3000.0))
-                    waveform.extend([normalized_rms] * 5)
+            if self.microphone_buffer and len(self.microphone_buffer) > 0:
+                # Use only the most recent chunk for real-time response
+                latest_data = list(self.microphone_buffer)[-1]
+                audio_np = np.frombuffer(latest_data, dtype=np.int16)
+                
+                # Split the latest chunk into exactly 20 samples for consistent bars
+                if len(audio_np) > 0:
+                    chunk_size = max(1, len(audio_np) // target_length)
+                    
+                    for i in range(target_length):
+                        start_idx = i * chunk_size
+                        end_idx = min(start_idx + chunk_size, len(audio_np))
+                        
+                        if start_idx < len(audio_np):
+                            sample = audio_np[start_idx:end_idx]
+                            if len(sample) > 0:
+                                rms = np.sqrt(np.mean(sample.astype(np.float32) ** 2))
+                                # Sensitive normalization with consistent scaling
+                                normalized_rms = float(min(1.0, max(0.05, (rms / 500.0) * 2.5)))
+                                waveform.append(normalized_rms)
+                            else:
+                                waveform.append(0.05)
+                        else:
+                            waveform.append(0.05)
             
-            # Pad or trim to desired length
-            target_length = 20
-            if len(waveform) > target_length:
-                waveform = waveform[:target_length]
-            else:
-                waveform.extend([0.0] * (target_length - len(waveform)))
+            # Check system audio buffer as fallback
+            elif self.system_audio_buffer and len(self.system_audio_buffer) > 0:
+                latest_data = list(self.system_audio_buffer)[-1]
+                audio_np = np.frombuffer(latest_data, dtype=np.int16)
+                
+                if len(audio_np) > 0:
+                    # Same approach for system audio - split into 20 consistent samples
+                    chunk_size = max(1, len(audio_np) // target_length)
+                    
+                    for i in range(target_length):
+                        start_idx = i * chunk_size
+                        end_idx = min(start_idx + chunk_size, len(audio_np))
+                        
+                        if start_idx < len(audio_np):
+                            sample = audio_np[start_idx:end_idx]
+                            if len(sample) > 0:
+                                rms = np.sqrt(np.mean(sample.astype(np.float32) ** 2))
+                                normalized_rms = float(min(1.0, max(0.05, (rms / 500.0) * 2.5)))
+                                waveform.append(normalized_rms)
+                            else:
+                                waveform.append(0.05)
+                        else:
+                            waveform.append(0.05)
             
-            return waveform
+            # Ensure we always return exactly 20 values
+            while len(waveform) < target_length:
+                waveform.append(0.05)
+                
+            return waveform[:target_length]
             
         except Exception as e:
             logger.error(f"❌ Error generating waveform: {e}")
-            return [0.0] * 20
+            return [0.05] * 20  # Small baseline instead of 0.0
     
     def get_current_sources(self) -> str:
         """Get description of current recording sources"""

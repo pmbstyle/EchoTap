@@ -241,6 +241,87 @@ class TranscriptionEngine:
             return await self._process_audio_chunk(chunk_data, sample_rate, source=source, is_final=False)
             
         return None
+    
+    async def process_wav_audio(self, wav_data: bytes, sample_rate: int = 16000, source: str = "microphone") -> Optional[Dict]:
+        """Process WAV audio data directly from frontend"""
+        try:
+            # Skip WAV header (44 bytes) and convert to float32
+            audio_bytes = wav_data[44:]  # Skip WAV header
+            audio_np = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+            
+            if len(audio_np) == 0:
+                return None
+            
+            logger.info(f"🎵 Processing WAV audio: {len(audio_np)} samples from {source}")
+            
+            # Apply source-specific preprocessing (similar to _process_audio_chunk)
+            if source == "microphone":
+                max_val = np.max(np.abs(audio_np))
+                if max_val > 0:
+                    audio_np = audio_np * (0.7 / max_val)
+                    audio_np = np.sign(audio_np) * np.power(np.abs(audio_np), 0.8)
+            
+            # Run transcription
+            segments, info = self.model.transcribe(
+                audio_np,
+                beam_size=5,
+                temperature=0.0,
+                language=None,  # None for auto-detection
+                condition_on_previous_text=True,
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=300),
+                initial_prompt=self._get_context_prompt()
+            )
+            
+            # Collect segments
+            text_segments = []
+            full_text = []
+            start_time = 0
+            end_time = len(audio_np) / sample_rate
+            
+            for segment in segments:
+                if hasattr(segment, 'text') and segment.text.strip():
+                    segment_data = {
+                        "text": segment.text.strip(),
+                        "start": float(segment.start),
+                        "end": float(segment.end),
+                        "confidence": float(getattr(segment, "avg_logprob", 0.0))
+                    }
+                    text_segments.append(segment_data)
+                    full_text.append(segment.text.strip())
+                    
+                    # Update timing
+                    if hasattr(segment, 'start'):
+                        start_time = min(start_time, segment.start)
+                    if hasattr(segment, 'end'):
+                        end_time = max(end_time, segment.end)
+            
+            if not text_segments:
+                return None
+            
+            result_text = " ".join(full_text)
+            
+            # Update session transcript
+            self.session_transcript.extend(text_segments)
+            
+            result = {
+                "type": "final_transcript",
+                "text": result_text,
+                "segments": text_segments,
+                "language": info.language,
+                "confidence": float(info.language_probability),
+                "is_final": True,
+                "timestamp": datetime.now().isoformat(),
+                "start_time": start_time,
+                "end_time": end_time
+            }
+            
+            logger.info(f"✅ WAV transcription: '{result_text[:50]}...' (lang: {info.language}, conf: {info.language_probability:.3f})")
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Error processing WAV audio: {e}")
+            return None
         
     async def _process_audio_chunk(self, audio_data: bytes, sample_rate: int, source: str = "unknown", is_final: bool = False) -> Optional[Dict]:
         """Process audio chunk through Whisper with source-aware processing"""

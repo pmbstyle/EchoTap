@@ -99,7 +99,55 @@ class AudioCapture:
         """Get waveform visualization data"""
         if self.multi_source_capture:
             return self.multi_source_capture.get_waveform_data()
+        
+        # Fallback: generate simulated waveform when recording
+        if self.is_recording:
+            return self._generate_simulated_waveform()
         return [0.0] * 20
+    
+    def _generate_simulated_waveform(self) -> list:
+        """Generate simulated waveform data for visualization when real audio is not available"""
+        import random
+        import time
+        import math
+        
+        # Create synchronized, speech-like waveform pattern
+        waveform = []
+        current_time = time.time()
+        
+        # Create a more natural speech envelope
+        # Speech typically has bursts of activity followed by quieter periods
+        speech_phase = (current_time * 1.5) % 2.0  # 2-second cycles
+        is_speaking = speech_phase < 1.2  # 1.2 seconds of "speech", 0.8 seconds quieter
+        
+        for i in range(20):
+            if is_speaking:
+                # Active speech simulation - more variation across bars
+                position_factor = i / 19.0  # 0.0 to 1.0 across bars
+                
+                # Create speech-like patterns with phoneme variation
+                phoneme_freq = math.sin(current_time * 6 + i * 0.4) * 0.5
+                formant_freq = math.sin(current_time * 15 + position_factor * 8) * 0.3
+                
+                # Add some random variation for naturalness
+                noise = (random.random() - 0.5) * 0.2
+                
+                # Simulate speech envelope - varies across frequency bands (bars)
+                envelope = 0.6 + 0.4 * abs(math.sin(position_factor * math.pi))
+                
+                value = abs(phoneme_freq + formant_freq + noise) * envelope
+                value = min(1.0, max(0.1, value * 1.8))
+                
+            else:
+                # Quiet period - background noise only
+                noise = (random.random() - 0.5) * 0.1
+                breathing = abs(math.sin(current_time * 4 + i * 0.2)) * 0.15
+                value = abs(noise + breathing * 0.5)
+                value = min(0.3, max(0.05, value * 1.2))
+            
+            waveform.append(value)
+        
+        return waveform
     
     def get_current_source(self) -> str:
         """Get current recording source description"""

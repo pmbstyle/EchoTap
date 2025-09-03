@@ -19,6 +19,9 @@
         :elapsed-time="transcriptionStore.elapsedTime"
         :waveform-data="transcriptionStore.waveformData"
         :is-dark-mode="isDarkMode"
+        :is-connected="transcriptionStore.isConnected"
+        :transcript-window-open="transcriptWindowOpen"
+        :archive-window-open="archiveWindowOpen"
         @toggle-recording="handleToggleRecording"
         @show-transcript="handleShowTranscript"
         @show-archive="handleShowArchive"
@@ -80,6 +83,10 @@ export default {
     const showTranscript = ref(false)
     const isDarkMode = ref(true)
     
+    // Track external window states
+    const transcriptWindowOpen = ref(false)
+    const archiveWindowOpen = ref(false)
+    
     let recordingStartTime = 0
     let timerInterval = null
 
@@ -136,17 +143,33 @@ export default {
 
     const handleShowTranscript = () => {
       if (window.electronAPI) {
-        window.electronAPI.showTranscript()
+        if (transcriptWindowOpen.value) {
+          // Window is open, close it
+          window.electronAPI.closeTranscript()
+          transcriptWindowOpen.value = false
+        } else {
+          // Window is closed, open it
+          window.electronAPI.showTranscript()
+          transcriptWindowOpen.value = true
+        }
       } else {
-        showTranscript.value = true
+        showTranscript.value = !showTranscript.value
       }
     }
 
     const handleShowArchive = () => {
       if (window.electronAPI) {
-        window.electronAPI.showArchive()
+        if (archiveWindowOpen.value) {
+          // Window is open, close it
+          window.electronAPI.closeArchive()
+          archiveWindowOpen.value = false
+        } else {
+          // Window is closed, open it
+          window.electronAPI.showArchive()
+          archiveWindowOpen.value = true
+        }
       } else {
-        showArchive.value = true
+        showArchive.value = !showArchive.value
       }
     }
 
@@ -184,6 +207,22 @@ export default {
             })
             window.electronAPI.onCopyTranscript(handleCopyTranscript)
             window.electronAPI.onToggleOverlay(handleToggleOverlay)
+            
+            // Listen for window state changes
+            window.electronAPI.onTranscriptWindowClosed(() => {
+              transcriptWindowOpen.value = false
+              console.log('📋 Transcript window closed')
+            })
+            window.electronAPI.onArchiveWindowClosed(() => {
+              archiveWindowOpen.value = false
+              console.log('📚 Archive window closed')
+            })
+          }
+          
+          // If in transcript mode, query backend status to sync with any ongoing recording
+          if (isTranscriptMode.value) {
+            console.log('📋 Transcript window initializing - querying backend status')
+            await transcriptionStore.queryBackendStatus()
           }
 
           // Load theme preference - default to dark

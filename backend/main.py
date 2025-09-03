@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import sys
+from datetime import datetime
 
 # Fix OpenMP library conflict issue
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -17,7 +18,7 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from audio_capture import AudioCapture
+# Audio capture now handled by frontend VAD
 from transcription_engine import TranscriptionEngine
 from database import DatabaseManager
 from models import (
@@ -33,17 +34,16 @@ logger = logging.getLogger(__name__)
 
 # Global state
 active_connections: List[WebSocket] = []
-audio_capture: Optional[AudioCapture] = None
 transcription_engine: Optional[TranscriptionEngine] = None
 database: Optional[DatabaseManager] = None
 current_session_id: Optional[str] = None
-is_recording = False
 current_session_transcript = ""  # Track current session transcript for live sync
+is_recording = False  # Track recording state for frontend sync
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan management"""
-    global audio_capture, transcription_engine, database
+    global transcription_engine, database
     
     # Startup
     logger.info("Starting EchoTap backend...")
@@ -56,24 +56,15 @@ async def lifespan(app: FastAPI):
     database = DatabaseManager(str(db_path))
     await database.initialize()
     
-    # Initialize audio capture
-    audio_capture = AudioCapture()
-    
-    # Initialize transcription engine
+    # Initialize transcription engine only
     transcription_engine = TranscriptionEngine()
     
-    # Set up audio processing pipeline
-    audio_capture.set_audio_callback(audio_callback)
-    
-    logger.info("EchoTap backend started successfully")
+    logger.info("EchoTap backend started successfully - audio handled by frontend")
     
     yield
     
     # Shutdown
     logger.info("Shutting down EchoTap backend...")
-    
-    if audio_capture:
-        await audio_capture.stop_recording()
     
     if database:
         await database.close()
@@ -89,73 +80,7 @@ def get_app_data_dir() -> Path:
     else:  # Linux
         return Path.home() / ".config" / "EchoTap"
 
-async def audio_callback(audio_data: bytes, sample_rate: int, source: str = "unknown"):
-    """Process audio data and send to transcription"""
-    global current_session_transcript
-    if not is_recording or not transcription_engine:
-        return
-    
-    logger.debug(f"🎵 Received audio from {source}: {len(audio_data)} bytes, {sample_rate}Hz")
-    
-    try:
-        # Process audio through transcription engine
-        result = await transcription_engine.process_audio_chunk(
-            audio_data, sample_rate, current_session_id, source
-        )
-        
-        if result:
-            logger.info(f"🔊 Got transcription from {source}: '{result['text']}'")
-            
-            # Update current session transcript for live sync
-            # Only add new text if it's not a duplicate and contains actual content
-            new_text = result["text"].strip()
-            if new_text and (not current_session_transcript or new_text not in current_session_transcript):
-                if current_session_transcript:
-                    current_session_transcript += " " + new_text
-                else:
-                    current_session_transcript = new_text
-                logger.debug(f"📋 Updated session transcript: {len(current_session_transcript)} chars")
-            
-            # Send transcription to all connected clients with source information
-            # Convert timestamp to string if it exists
-            timestamp_str = result.get("timestamp")
-            if timestamp_str and not isinstance(timestamp_str, str):
-                timestamp_str = str(timestamp_str)
-                
-            message = TranscriptionMessage(
-                type=result["type"],
-                text=result["text"],
-                confidence=float(result.get("confidence", 0.0)),
-                is_final=result.get("is_final", False),
-                timestamp=timestamp_str
-            )
-            
-            # Add source information to the message
-            message_dict = message.dict()
-            message_dict["source"] = source
-            
-            await broadcast_message(message_dict)
-            
-            # Save to database - save both partial and final results
-            # We'll save all transcription chunks to build up the complete transcript
-            if database and current_session_id and result.get("text", "").strip():
-                await database.add_transcript_segment(
-                    session_id=current_session_id,
-                    text=result["text"],
-                    start_time=float(result.get("start_time", 0)),
-                    end_time=float(result.get("end_time", 0)),
-                    confidence=float(result.get("confidence", 0.0))
-                )
-        
-        # Send waveform data
-        waveform_data = audio_capture.get_waveform_data()
-        await broadcast_message({
-            "type": "waveform_data",
-            "data": waveform_data
-        })
-        
-    except Exception as e:
-        logger.error(f"Error processing audio: {e}")
+# Audio processing is now handled by handle_frontend_audio function below
 
 async def broadcast_message(message: Dict):
     """Broadcast message to all connected WebSocket clients"""
@@ -176,6 +101,84 @@ async def broadcast_message(message: Dict):
     for connection in disconnected:
         if connection in active_connections:
             active_connections.remove(connection)
+
+async def handle_frontend_audio(message: Dict):
+    """Handle audio data from frontend VAD"""
+    global current_session_id, current_session_transcript, database, transcription_engine, is_recording
+    
+    try:
+        audio_data = message.get("audio_data")
+        sample_rate = message.get("sample_rate", 16000)
+        
+        if not audio_data:
+            logger.warning("No audio data received from frontend")
+            return
+            
+        logger.info(f"🎤 Received audio from frontend: {len(audio_data)} bytes")
+        
+        # Create session if not exists
+        if not current_session_id and database:
+            session_data = SessionData(
+                source="microphone",
+                model=transcription_engine.get_current_model() if transcription_engine else "unknown"
+            )
+            current_session_id = await database.create_session(session_data)
+            current_session_transcript = ""
+            logger.info(f"🆔 Created new session: {current_session_id}")
+        
+        # Set recording state when we receive audio
+        if not is_recording:
+            is_recording = True
+            await broadcast_message({
+                "type": "recording_started",
+                "session_id": current_session_id
+            })
+        
+        # Convert back to bytes
+        audio_bytes = bytes(audio_data)
+        
+        # Process with transcription engine
+        if transcription_engine:
+            result = await transcription_engine.process_wav_audio(audio_bytes, sample_rate, "microphone")
+            
+            if result and result.get("text", "").strip():
+                # Send transcription result to frontend
+                timestamp_str = datetime.now().isoformat()
+                message_dict = {
+                    "type": result["type"],
+                    "text": result["text"],
+                    "confidence": float(result.get("confidence", 0.0)),
+                    "is_final": result.get("is_final", True),  # Frontend VAD sends complete utterances
+                    "timestamp": timestamp_str,
+                    "source": "microphone"
+                }
+                
+                # Update session transcript
+                new_text = result["text"].strip()
+                if new_text and (not current_session_transcript or new_text not in current_session_transcript):
+                    if current_session_transcript:
+                        current_session_transcript += " " + new_text
+                    else:
+                        current_session_transcript = new_text
+                
+                await broadcast_message(message_dict)
+                
+                # Save to database
+                if database and current_session_id:
+                    await database.add_transcript_segment(
+                        session_id=current_session_id,
+                        text=result["text"],
+                        start_time=float(result.get("start_time", 0)),
+                        end_time=float(result.get("end_time", 0)),
+                        confidence=float(result.get("confidence", 0.0))
+                    )
+                
+                logger.info(f"✅ Transcribed: '{new_text[:50]}...'")
+                
+    except Exception as e:
+        logger.error(f"Error handling frontend audio: {e}")
+
+# Waveform is now handled by frontend - no backend waveform loop needed
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -223,26 +226,11 @@ async def handle_websocket_message(websocket: WebSocket, message: Dict):
     message_type = message.get("type")
     
     try:
-        if message_type == "start_recording":
-            await start_recording()
-            
-        elif message_type == "stop_recording":
-            await stop_recording()
-            
-        elif message_type == "toggle_recording":
-            if is_recording:
-                await stop_recording()
-            else:
-                await start_recording()
-                
-        elif message_type == "toggle_source":
-            if audio_capture:
-                await audio_capture.toggle_source()
-                source = audio_capture.get_current_source()
-                await websocket.send_text(json.dumps({
-                    "type": "source_changed",
-                    "source": source
-                }))
+        if message_type == "transcribe_audio":
+            await handle_frontend_audio(message)
+        
+        elif message_type == "frontend_recording_stopped":
+            await handle_frontend_recording_stopped()
                 
         elif message_type == "get_sessions":
             if database:
@@ -289,7 +277,6 @@ async def handle_websocket_message(websocket: WebSocket, message: Dict):
                 
         elif message_type == "get_status":
             # Send current backend status to sync frontend state
-            current_source = audio_capture.get_current_source() if audio_capture else "none"
             current_model = transcription_engine.get_current_model() if transcription_engine else "unknown"
             
             # Use the live accumulated session transcript
@@ -297,14 +284,14 @@ async def handle_websocket_message(websocket: WebSocket, message: Dict):
                 "type": "backend_status",
                 "is_recording": is_recording,
                 "current_session_id": current_session_id,
-                "audio_source": current_source,
+                "audio_source": "microphone",
                 "model": current_model,
                 "connections": len(active_connections),
                 "current_transcript": current_session_transcript
             }
             
             await websocket.send_text(json.dumps(status_response))
-            logger.info(f"📊 Status queried: recording={is_recording}, session={current_session_id}, source={current_source}, transcript_chars={len(current_session_transcript)}")
+            logger.info(f"📊 Status queried: recording={is_recording}, session={current_session_id}, source=microphone, transcript_chars={len(current_session_transcript)}")
                 
         elif message_type == "download_model":
             model_name = message.get("model")
@@ -329,91 +316,30 @@ async def handle_websocket_message(websocket: WebSocket, message: Dict):
             "error": str(e)
         }))
 
-async def start_recording():
-    """Start audio recording and transcription"""
+async def handle_frontend_recording_stopped():
+    """Handle when frontend recording stops"""
     global is_recording, current_session_id, current_session_transcript
     
     if is_recording:
-        return
-    
-    try:
-        # Clear previous session transcript
-        current_session_transcript = ""
+        is_recording = False
+        session_id = current_session_id
         
-        # Create new session
-        if database:
-            current_source = audio_capture.get_current_source() if audio_capture else "unknown"
-            # If source is "none", default to "microphone" for now
-            if current_source == "none":
-                current_source = "microphone"
-                
-            session_data = SessionData(
-                source=current_source,
-                model=transcription_engine.get_current_model() if transcription_engine else "unknown"
-            )
-            current_session_id = await database.create_session(session_data)
-        
-        # Start audio capture
-        if audio_capture:
-            await audio_capture.start_recording()
-        
-        # Start transcription engine
-        if transcription_engine:
-            await transcription_engine.start_session(current_session_id)
-        
-        is_recording = True
-        await broadcast_message({
-            "type": "recording_started",
-            "session_id": current_session_id
-        })
-        
-        logger.info(f"Recording started. Session ID: {current_session_id}")
-        
-    except Exception as e:
-        logger.error(f"Error starting recording: {e}")
-        await broadcast_message({
-            "type": "error",
-            "error": f"Failed to start recording: {str(e)}"
-        })
-
-async def stop_recording():
-    """Stop audio recording and transcription"""
-    global is_recording, current_session_id, current_session_transcript
-    
-    if not is_recording:
-        return
-    
-    try:
-        # Stop audio capture
-        if audio_capture:
-            await audio_capture.stop_recording()
-        
-        # Stop transcription engine
-        if transcription_engine:
-            await transcription_engine.end_session(current_session_id)
-        
-        # Update session in database
+        # Complete session in database
         if database and current_session_id:
             await database.complete_session(current_session_id)
         
-        is_recording = False
-        session_id = current_session_id
+        # Reset session state
         current_session_id = None
-        current_session_transcript = ""  # Clear session transcript
+        current_session_transcript = ""
         
         await broadcast_message({
             "type": "recording_stopped",
             "session_id": session_id
         })
         
-        logger.info(f"Recording stopped. Session ID: {session_id}")
-        
-    except Exception as e:
-        logger.error(f"Error stopping recording: {e}")
-        await broadcast_message({
-            "type": "error", 
-            "error": f"Failed to stop recording: {str(e)}"
-        })
+        logger.info(f"📴 Frontend recording stopped, session: {session_id}")
+
+# Recording is now handled by frontend VAD - backend only processes transcription
 
 @app.get("/health")
 async def health_check():

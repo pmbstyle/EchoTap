@@ -1,12 +1,21 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { useAudioProcessing } from '../composables/useAudioProcessing.js'
 
 export const useTranscriptionStore = defineStore('transcription', () => {
+  // Initialize audio processing
+  const audioProcessing = useAudioProcessing()
+  
   // State
   const isConnected = ref(false)
-  const isRecording = ref(false)
   const currentSessionId = ref(null)
   const elapsedTime = ref(0)
+  
+  // Use audio processing state
+  const isRecording = audioProcessing.isRecording
+  const waveformData = audioProcessing.waveformData
+  const isSpeechDetected = audioProcessing.isSpeechDetected
+  const isListening = audioProcessing.isListening
   
   // Transcription text management
   const partialText = ref('')
@@ -15,9 +24,8 @@ export const useTranscriptionStore = defineStore('transcription', () => {
   const sessionTranscript = ref('') // Accumulated final transcripts for the session
   const isFinal = ref(false)
   
-  // Audio visualization
-  const waveformData = ref([])
-  const audioSource = ref('microphone') // 'microphone' | 'system_audio'
+  // Audio source (frontend-controlled now)
+  const audioSource = ref('microphone')
   
   // Session management
   const sessions = ref([])
@@ -116,7 +124,7 @@ export const useTranscriptionStore = defineStore('transcription', () => {
   }
   
   const handleRecordingStarted = (data) => {
-    isRecording.value = true
+    // Don't override audio processing state - it manages isRecording
     currentSessionId.value = data.session_id
     elapsedTime.value = 0
     
@@ -127,11 +135,11 @@ export const useTranscriptionStore = defineStore('transcription', () => {
     sessionTranscript.value = ''
     isFinal.value = false
     
-    console.log('🎤 Recording started, session:', data.session_id)
+    console.log('🎤 Backend confirmed recording started, session:', data.session_id)
   }
   
   const handleRecordingStopped = (data) => {
-    isRecording.value = false
+    // Don't override audio processing state - it manages isRecording
     stopTyping()
     
     // Create session record
@@ -227,8 +235,7 @@ export const useTranscriptionStore = defineStore('transcription', () => {
   const handleBackendStatus = (data) => {
     console.log('📊 Backend status received:', data)
     
-    // Sync frontend state with backend
-    isRecording.value = data.is_recording || false
+    // Sync session state with backend (don't override audio processing state)
     currentSessionId.value = data.current_session_id || null
     audioSource.value = data.audio_source || 'microphone'
     
@@ -289,14 +296,31 @@ export const useTranscriptionStore = defineStore('transcription', () => {
   
   // Actions
   const toggleRecording = async () => {
-    if (window.electronAPI) {
-      try {
-        await window.electronAPI.sendToBackend({
-          type: 'toggle_recording'
-        })
-      } catch (error) {
-        console.error('Error toggling recording:', error)
+    try {
+      await audioProcessing.toggleRecording()
+      
+      // Start session tracking when recording starts
+      if (isRecording.value) {
+        currentSessionId.value = Date.now().toString()
+        elapsedTime.value = 0
+        sessionTranscript.value = ''
+        displayText.value = ''
+        partialText.value = ''
+        finalText.value = ''
+        isFinal.value = false
+        
+        console.log('🎤 Frontend recording started, session:', currentSessionId.value)
+      } else {
+        // Notify backend that recording has stopped
+        if (window.electronAPI) {
+          await window.electronAPI.sendToBackend({
+            type: 'frontend_recording_stopped'
+          })
+        }
+        console.log('⏹️ Frontend recording stopped, session:', currentSessionId.value)
       }
+    } catch (error) {
+      console.error('Error toggling frontend recording:', error)
     }
   }
   
@@ -379,6 +403,8 @@ export const useTranscriptionStore = defineStore('transcription', () => {
     // State
     isConnected,
     isRecording,
+    isListening,
+    isSpeechDetected,
     currentSessionId,
     elapsedTime,
     displayText,

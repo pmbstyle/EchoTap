@@ -40,6 +40,7 @@
     "wait-on": "^7.2.0"
   },
   "dependencies": {
+    "@ricky0123/vad-web": "^0.0.26",
     "@vueuse/core": "^10.3.0",
     "electron-store": "^8.1.0",
     "fuse.js": "^6.6.2",
