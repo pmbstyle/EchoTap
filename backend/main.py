@@ -227,8 +227,12 @@ async def websocket_endpoint(websocket: WebSocket):
             
     except WebSocketDisconnect:
         logger.info("Client disconnected")
+        # Auto-complete any active session on disconnect
+        await handle_disconnect_cleanup()
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
+        # Auto-complete any active session on error
+        await handle_disconnect_cleanup()
     finally:
         if websocket in active_connections:
             active_connections.remove(websocket)
@@ -330,6 +334,31 @@ async def handle_websocket_message(websocket: WebSocket, message: Dict):
             "type": "error",
             "error": str(e)
         }))
+
+async def handle_disconnect_cleanup():
+    """Handle cleanup when WebSocket disconnects - complete any active session"""
+    global is_recording, current_session_id, current_session_transcript
+    
+    if current_session_id and database:
+        try:
+            logger.info(f"🔄 Auto-completing session on disconnect: {current_session_id}")
+            await database.complete_session(current_session_id)
+            
+            # Reset session state
+            session_id = current_session_id
+            current_session_id = None
+            current_session_transcript = ""
+            is_recording = False
+            
+            await broadcast_message({
+                "type": "session_completed", 
+                "session_id": session_id,
+                "reason": "disconnect_cleanup"
+            })
+            
+            logger.info(f"✅ Session auto-completed on disconnect: {session_id}")
+        except Exception as e:
+            logger.error(f"❌ Error completing session on disconnect: {e}")
 
 async def handle_frontend_recording_stopped():
     """Handle when frontend recording stops"""

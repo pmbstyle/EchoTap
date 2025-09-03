@@ -292,6 +292,19 @@ export function useAudioProcessing() {
     
     console.log('⏹️ Stopping recording...')
     
+    // Force flush any remaining audio from VAD before stopping
+    if (vadInstance.value && isSpeechDetected.value) {
+      console.log('🔄 Flushing remaining audio before stop...')
+      try {
+        // Force the VAD to process any remaining audio
+        // The VAD library doesn't have a direct flush method, so we'll use a small delay
+        // to allow any pending audio processing to complete
+        await new Promise(resolve => setTimeout(resolve, 100))
+      } catch (error) {
+        console.warn('⚠️ Error flushing VAD audio:', error)
+      }
+    }
+    
     // Stop VAD
     if (vadInstance.value) {
       vadInstance.value.pause()
@@ -300,6 +313,14 @@ export function useAudioProcessing() {
     
     // Stop waveform visualization
     stopWaveformVisualization()
+    
+    // Notify backend that recording stopped
+    if (window.electronAPI) {
+      await window.electronAPI.sendToBackend({
+        type: 'frontend_recording_stopped'
+      })
+      console.log('📤 Sent frontend_recording_stopped to backend')
+    }
     
     isRecording.value = false
     isSpeechDetected.value = false

@@ -9,6 +9,7 @@ export const useTranscriptionStore = defineStore('transcription', () => {
   // Check if this window should have audio processing (main window only)
   const urlParams = new URLSearchParams(window.location.search)
   const isMainWindow = !urlParams.get('mode') // No mode param = main window
+  console.log(`🪟 Window initialized: mode=${urlParams.get('mode')}, isMainWindow=${isMainWindow}`)
   
   if (isMainWindow) {
     audioProcessing = useAudioProcessing()
@@ -138,6 +139,7 @@ export const useTranscriptionStore = defineStore('transcription', () => {
           watch(
             () => audioProcessing.isRecording.value,
             (newRecording) => {
+              console.log(`🎤 Audio processing recording state changed to: ${newRecording}`)
               // Update global state via IPC
               window.electronAPI.updateAppState({ isRecording: newRecording })
             },
@@ -168,6 +170,11 @@ export const useTranscriptionStore = defineStore('transcription', () => {
         if (message.sessions) {
           sessions.value = message.sessions
         }
+        break
+      case 'session_completed':
+        // Auto-refresh archive when session is completed
+        console.log('🔄 Session completed, refreshing archive...', message.session_id)
+        loadSessions() // Remove await since this function isn't async
         break
       case 'session_transcript':
       case 'session_deleted':

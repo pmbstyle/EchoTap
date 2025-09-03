@@ -149,7 +149,7 @@ class DatabaseManager:
             """, (session_id,))
             
             result = await cursor.fetchone()
-            if result and result['max_time'] and result['min_time']:
+            if result and result['max_time'] is not None and result['min_time'] is not None:
                 duration = int(result['max_time'] - result['min_time'])
             else:
                 duration = 0

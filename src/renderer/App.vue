@@ -48,7 +48,7 @@
 </template>
 
 <script>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useAppStore } from './stores/app'
 import { useTranscriptionStore } from './stores/transcription'
 import CapsuleBar from './components/CapsuleBar.vue'
@@ -95,7 +95,10 @@ export default {
       recordingStartTime = Date.now()
       timerInterval = setInterval(() => {
         const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000)
-        transcriptionStore.elapsedTime = elapsed
+        // Update global state via IPC instead of directly modifying computed property
+        if (window.electronAPI) {
+          window.electronAPI.updateAppState({ elapsedTime: elapsed })
+        }
       }, 1000)
     }
 
@@ -103,6 +106,10 @@ export default {
       if (timerInterval) {
         clearInterval(timerInterval)
         timerInterval = null
+      }
+      // Reset elapsed time when stopping
+      if (window.electronAPI) {
+        window.electronAPI.updateAppState({ elapsedTime: 0 })
       }
     }
 
@@ -119,8 +126,23 @@ export default {
       transcriptionStore.handleBackendMessage(message)
     }
 
+    // Watch for frontend recording state changes to control timer
+    watch(
+      () => transcriptionStore.isRecording,
+      (newIsRecording, oldIsRecording) => {
+        console.log(`🔍 Recording state changed: ${oldIsRecording} → ${newIsRecording} (window: ${isTranscriptMode.value ? 'transcript' : 'main'})`)
+        if (newIsRecording && !oldIsRecording) {
+          console.log('⏰ Starting timer - recording began')
+          startTimer()
+        } else if (!newIsRecording && oldIsRecording) {
+          console.log('⏰ Stopping timer - recording ended')
+          stopTimer()
+        }
+      }
+    )
+
     const handleToggleRecording = async () => {
-      console.log('Toggle recording clicked, current state:', transcriptionStore.isRecording)
+      console.log('🎤 Toggle recording clicked, current state:', transcriptionStore.isRecording)
       await transcriptionStore.toggleRecording()
     }
 
@@ -142,6 +164,7 @@ export default {
     }
 
     const handleShowTranscript = () => {
+      console.log('📋 Show transcript clicked, current window state:', transcriptWindowOpen.value)
       if (window.electronAPI) {
         if (transcriptWindowOpen.value) {
           // Window is open, close it
@@ -220,7 +243,9 @@ export default {
           }
           
           // If in transcript mode, query backend status to sync with any ongoing recording
-          if (isTranscriptMode.value) {
+          // DISABLED: Transcript windows should not query backend status as it can interfere with recording state
+          // Only the main window should manage recording state
+          if (false && isTranscriptMode.value) {
             console.log('📋 Transcript window initializing - querying backend status')
             await transcriptionStore.queryBackendStatus()
           }
