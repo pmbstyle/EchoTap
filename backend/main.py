@@ -142,16 +142,31 @@ async def handle_frontend_audio(message: Dict):
             result = await transcription_engine.process_wav_audio(audio_bytes, sample_rate, "microphone")
             
             if result and result.get("text", "").strip():
-                # Send transcription result to frontend
+                # Send transcription result to frontend - ensure correct message type
                 timestamp_str = datetime.now().isoformat()
-                message_dict = {
-                    "type": result["type"],
+                
+                # Since frontend VAD sends complete utterances, send as partial first, then final
+                partial_message = {
+                    "type": "partial_transcript",
                     "text": result["text"],
                     "confidence": float(result.get("confidence", 0.0)),
-                    "is_final": result.get("is_final", True),  # Frontend VAD sends complete utterances
+                    "is_final": False,
                     "timestamp": timestamp_str,
                     "source": "microphone"
                 }
+                
+                final_message = {
+                    "type": "final_transcript", 
+                    "text": result["text"],
+                    "confidence": float(result.get("confidence", 0.0)),
+                    "is_final": True,
+                    "timestamp": timestamp_str,
+                    "source": "microphone"
+                }
+                
+                # Send partial first, then final to simulate streaming behavior
+                await broadcast_message(partial_message)
+                await asyncio.sleep(0.1)  # Small delay between messages
                 
                 # Update session transcript
                 new_text = result["text"].strip()
@@ -161,7 +176,7 @@ async def handle_frontend_audio(message: Dict):
                     else:
                         current_session_transcript = new_text
                 
-                await broadcast_message(message_dict)
+                await broadcast_message(final_message)
                 
                 # Save to database
                 if database and current_session_id:

@@ -20,7 +20,147 @@ let tray
 let backendProcess
 let wsConnection
 
+// Global App State - Single source of truth for all windows
+let globalAppState = {
+  // Recording state
+  isRecording: false,
+  isListening: false,
+  currentSessionId: null,
+  elapsedTime: 0,
+  
+  // Transcription content
+  displayText: '',
+  sessionTranscript: '',
+  partialText: '',
+  isFinal: false,
+  
+  // Backend connection
+  isConnected: false,
+  
+  // Audio settings
+  audioSource: 'microphone',
+  
+  // UI state
+  waveformData: new Array(20).fill(0),
+  
+  // Session management
+  currentSession: null,
+  
+  // Statistics
+  wordCount: 0,
+  charCount: 0
+}
+
 const isDev = !app.isPackaged
+
+// Global State Management Functions
+function updateAppState(updates) {
+  // Deep merge updates into global state
+  Object.keys(updates).forEach(key => {
+    if (updates[key] !== undefined) {
+      globalAppState[key] = updates[key]
+    }
+  })
+  
+  // Calculate derived values
+  const text = globalAppState.sessionTranscript || globalAppState.displayText
+  globalAppState.wordCount = text ? text.trim().split(/\s+/).length : 0
+  globalAppState.charCount = text ? text.length : 0
+  
+  // Broadcast to all windows
+  broadcastStateToAllWindows()
+  
+}
+
+function broadcastStateToAllWindows() {
+  const windows = [mainWindow, transcriptWindow, archiveWindow].filter(w => w && !w.isDestroyed())
+  windows.forEach(window => {
+    try {
+      window.webContents.send('app-state-changed', globalAppState)
+    } catch (error) {
+      console.warn('Failed to send state to window:', error.message)
+    }
+  })
+}
+
+// Backend Message Handler - Updates global state from backend messages
+function handleBackendMessage(message) {
+  
+  switch (message.type) {
+    case 'connection_status':
+      updateAppState({ isConnected: message.connected })
+      break
+      
+    case 'recording_started':
+      updateAppState({ 
+        isRecording: true,
+        currentSessionId: message.session_id,
+        elapsedTime: 0,
+        displayText: '',
+        sessionTranscript: '',
+        partialText: '',
+        isFinal: false
+      })
+      break
+      
+    case 'recording_stopped':
+      updateAppState({ 
+        isRecording: false,
+        currentSessionId: null
+      })
+      break
+      
+    case 'partial_transcript':
+      updateAppState({
+        partialText: message.text,
+        displayText: message.text,
+        isFinal: false
+      })
+      break
+      
+    case 'final_transcript':
+      const currentTranscript = globalAppState.sessionTranscript
+      const newTranscript = currentTranscript ? 
+        currentTranscript + ' ' + message.text : 
+        message.text
+      
+      updateAppState({
+        sessionTranscript: newTranscript,
+        displayText: newTranscript,
+        partialText: message.text,
+        isFinal: true
+      })
+      break
+      
+    case 'backend_status':
+      updateAppState({
+        isRecording: message.is_recording,
+        currentSessionId: message.current_session_id,
+        audioSource: message.audio_source,
+        sessionTranscript: message.current_transcript || '',
+        displayText: message.current_transcript || ''
+      })
+      break
+      
+    case 'waveform_data':
+      updateAppState({
+        waveformData: message.data || new Array(20).fill(0)
+      })
+      break
+      
+    default:
+      // For other messages (like sessions_list, etc.), still forward to individual windows
+      // This maintains compatibility for non-state messages
+      const windows = [mainWindow, transcriptWindow, archiveWindow].filter(w => w && !w.isDestroyed())
+      windows.forEach(window => {
+        try {
+          window.webContents.send('backend-message', message)
+        } catch (error) {
+          console.warn('Failed to send message to window:', error.message)
+        }
+      })
+  }
+}
 
 // Backend process management
 function startBackendProcess() {
@@ -281,44 +421,26 @@ function setupWebSocketConnection() {
   
   wsConnection.on('open', () => {
     console.log('✅ Connected to backend WebSocket at ws://127.0.0.1:8888/ws')
-    // Send initial status message to both windows
-    if (mainWindow) {
-      mainWindow.webContents.send('backend-message', { 
-        type: 'connection_status', 
-        connected: true 
-      })
-    }
-    if (transcriptWindow) {
-      transcriptWindow.webContents.send('backend-message', { 
-        type: 'connection_status', 
-        connected: true 
-      })
-    }
+    // Update global state instead of sending individual messages
+    updateAppState({ isConnected: true })
   })
 
   wsConnection.on('message', (data) => {
     const message = JSON.parse(data.toString())
-    // Forward messages to main window
-    if (mainWindow) {
-      mainWindow.webContents.send('backend-message', message)
-    }
-    // Also forward to transcript window if open
-    if (transcriptWindow) {
-      transcriptWindow.webContents.send('backend-message', message)
-    }
-    // Also forward to archive window if open
-    if (archiveWindow) {
-      forwardMessageToArchive(message)
-    }
+    
+    // Update global state based on backend messages
+    handleBackendMessage(message)
   })
 
   wsConnection.on('error', (error) => {
     console.error('❌ WebSocket error:', error)
     console.log('Is backend running? Run: cd backend && python main.py')
+    updateAppState({ isConnected: false })
   })
 
   wsConnection.on('close', () => {
     console.log('WebSocket connection closed')
+    updateAppState({ isConnected: false })
     // Attempt to reconnect after 3 seconds
     setTimeout(setupWebSocketConnection, 3000)
   })
@@ -687,6 +809,25 @@ ipcMain.handle('send-to-backend', (event, message) => {
   if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
     wsConnection.send(JSON.stringify(message))
   }
+})
+
+// Global App State IPC Handlers
+ipcMain.handle('get-app-state', () => {
+  return globalAppState
+})
+
+ipcMain.handle('update-app-state', (event, updates) => {
+  updateAppState(updates)
+  return globalAppState
+})
+
+ipcMain.handle('get-state-property', (event, property) => {
+  return globalAppState[property]
+})
+
+ipcMain.handle('set-state-property', (event, property, value) => {
+  updateAppState({ [property]: value })
+  return globalAppState[property]
 })
 
 ipcMain.handle('minimize-window', () => {

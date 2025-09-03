@@ -1,59 +1,62 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useAudioProcessing } from '../composables/useAudioProcessing.js'
 
 export const useTranscriptionStore = defineStore('transcription', () => {
-  // Initialize audio processing
-  const audioProcessing = useAudioProcessing()
+  // Initialize audio processing (only for main window that controls recording)
+  let audioProcessing = null
   
-  // State
-  const isConnected = ref(false)
-  const currentSessionId = ref(null)
-  const elapsedTime = ref(0)
+  // Check if this window should have audio processing (main window only)
+  const urlParams = new URLSearchParams(window.location.search)
+  const isMainWindow = !urlParams.get('mode') // No mode param = main window
   
-  // Use audio processing state
-  const isRecording = audioProcessing.isRecording
-  const waveformData = audioProcessing.waveformData
-  const isSpeechDetected = audioProcessing.isSpeechDetected
-  const isListening = audioProcessing.isListening
+  if (isMainWindow) {
+    audioProcessing = useAudioProcessing()
+  }
   
-  // Transcription text management
-  const partialText = ref('')
-  const finalText = ref('')
-  const displayText = ref('')
-  const sessionTranscript = ref('') // Accumulated final transcripts for the session
-  const isFinal = ref(false)
+  // Global state from main process (reactive)
+  const globalState = ref({
+    isRecording: false,
+    isListening: false,
+    currentSessionId: null,
+    elapsedTime: 0,
+    displayText: '',
+    sessionTranscript: '',
+    partialText: '',
+    isFinal: false,
+    isConnected: false,
+    audioSource: 'microphone',
+    waveformData: new Array(20).fill(0),
+    currentSession: null,
+    wordCount: 0,
+    charCount: 0
+  })
   
-  // Audio source (frontend-controlled now)
-  const audioSource = ref('microphone')
-  
-  // Session management
+  // Session management (local to each window)
   const sessions = ref([])
-  const currentSession = ref(null)
   
-  // Typing effect state
-  const isTyping = ref(false)
-  const typingQueue = ref([])
-  let typingTimer = null
   
-  // Computed
+  // Computed properties that expose global state reactively
+  const isRecording = computed(() => globalState.value.isRecording)
+  const isListening = computed(() => globalState.value.isListening || (audioProcessing?.isListening?.value || false))
+  const isSpeechDetected = computed(() => audioProcessing?.isSpeechDetected?.value || false)
+  const currentSessionId = computed(() => globalState.value.currentSessionId)
+  const elapsedTime = computed(() => globalState.value.elapsedTime)
+  const displayText = computed(() => globalState.value.displayText)
+  const sessionTranscript = computed(() => globalState.value.sessionTranscript)
+  const partialText = computed(() => globalState.value.partialText)
+  const isFinal = computed(() => globalState.value.isFinal)
+  const isConnected = computed(() => globalState.value.isConnected)
+  const audioSource = computed(() => globalState.value.audioSource)
+  const waveformData = computed(() => audioProcessing?.waveformData?.value || globalState.value.waveformData)
+  const currentSession = computed(() => globalState.value.currentSession)
+  const wordCount = computed(() => globalState.value.wordCount)
+  const charCount = computed(() => globalState.value.charCount)
+  
   const formattedTime = computed(() => {
-    const minutes = Math.floor(elapsedTime.value / 60).toString().padStart(2, '0')
-    const seconds = (elapsedTime.value % 60).toString().padStart(2, '0')
+    const minutes = Math.floor(globalState.value.elapsedTime / 60).toString().padStart(2, '0')
+    const seconds = (globalState.value.elapsedTime % 60).toString().padStart(2, '0')
     return `${minutes}:${seconds}`
-  })
-  
-  const wordCount = computed(() => {
-    // Use sessionTranscript for accurate count, fallback to displayText
-    const textToCount = sessionTranscript.value || displayText.value
-    if (!textToCount) return 0
-    return textToCount.trim().split(/\s+/).length
-  })
-  
-  const charCount = computed(() => {
-    // Use sessionTranscript for accurate count, fallback to displayText
-    const textToCount = sessionTranscript.value || displayText.value
-    return textToCount.length
   })
   
   // Typing effect functions
@@ -63,6 +66,7 @@ export const useTranscriptionStore = defineStore('transcription', () => {
         resolve()
         return
       }
+      
       
       stopTyping()
       isTyping.value = true
@@ -93,9 +97,13 @@ export const useTranscriptionStore = defineStore('transcription', () => {
   
   const replaceText = (newText, speed = 15) => {
     return new Promise((resolve) => {
+      
       stopTyping()
       displayText.value = ''
-      typeText(newText, speed).then(resolve)
+      
+      typeText(newText, speed).then(() => {
+        resolve()
+      })
     })
   }
   
@@ -112,253 +120,83 @@ export const useTranscriptionStore = defineStore('transcription', () => {
     isTyping.value = false
   }
   
-  const instantText = (text) => {
-    stopTyping()
-    displayText.value = text
-  }
-  
-  // WebSocket message handlers
-  const handleConnectionStatus = (connected) => {
-    isConnected.value = connected
-    console.log('📡 Backend connection:', connected ? 'Connected' : 'Disconnected')
-  }
-  
-  const handleRecordingStarted = (data) => {
-    // Don't override audio processing state - it manages isRecording
-    currentSessionId.value = data.session_id
-    elapsedTime.value = 0
-    
-    // Clear previous text
-    displayText.value = ''
-    partialText.value = ''
-    finalText.value = ''
-    sessionTranscript.value = ''
-    isFinal.value = false
-    
-    console.log('🎤 Backend confirmed recording started, session:', data.session_id)
-  }
-  
-  const handleRecordingStopped = (data) => {
-    // Don't override audio processing state - it manages isRecording
-    stopTyping()
-    
-    // Create session record
-    if (displayText.value.trim()) {
-      const session = {
-        id: currentSessionId.value || Date.now().toString(),
-        text: displayText.value,
-        timestamp: new Date().toISOString(),
-        duration: elapsedTime.value,
-        wordCount: wordCount.value,
-        source: audioSource.value
-      }
-      sessions.value.unshift(session)
-    }
-    
-    currentSessionId.value = null
-    console.log('⏹️ Recording stopped, session:', data.session_id)
-  }
-  
-  const handlePartialTranscript = async (data) => {
-    if (!isRecording.value) return
-    
-    const newText = data.text?.trim()
-    if (!newText) return
-    
-    partialText.value = newText
-    isFinal.value = false
-    
-    // Simple accumulation: if this text is different from what we have, it's a new segment
-    const currentTranscriptWords = sessionTranscript.value.split(' ').filter(w => w.length > 0)
-    const newTextWords = newText.split(' ').filter(w => w.length > 0)
-    
-    // Check if this is a new segment by comparing word overlap
-    const isNewSegment = !newTextWords.every(word => 
-      currentTranscriptWords.some(existing => existing.includes(word) || word.includes(existing))
-    )
-    
-    if (isNewSegment || !sessionTranscript.value) {
-      // This is a new segment - accumulate it and animate only the new part
-      if (sessionTranscript.value) {
-        const newSegmentText = ' ' + newText
-        sessionTranscript.value += newSegmentText
+  // Global State Management via IPC
+  const initializeGlobalState = async () => {
+    if (window.electronAPI) {
+      try {
+        // Get initial state from main process
+        const initialState = await window.electronAPI.getAppState()
+        globalState.value = { ...globalState.value, ...initialState }
         
-        // Only animate the new segment, not the whole transcript
-        await appendText(newSegmentText, 25)
-      } else {
-        // First segment - animate the whole thing
-        sessionTranscript.value = newText
-        await replaceText(newText, 25)
+        // Listen for state changes from main process
+        window.electronAPI.onAppStateChanged((event, newState) => {
+          globalState.value = { ...globalState.value, ...newState }
+        })
+        
+        // Set up audio processing state synchronization for main window
+        if (isMainWindow && audioProcessing) {
+          watch(
+            () => audioProcessing.isRecording.value,
+            (newRecording) => {
+              // Update global state via IPC
+              window.electronAPI.updateAppState({ isRecording: newRecording })
+            },
+            { immediate: true }
+          )
+          
+          watch(
+            () => audioProcessing.isListening.value,
+            (newListening) => {
+              window.electronAPI.updateAppState({ isListening: newListening })
+            },
+            { immediate: true }
+          )
+        }
+        
+      } catch (error) {
+        console.error('❌ Failed to initialize global state:', error)
       }
-      console.log(`✅ New segment accumulated: "${newText}"`)
-      console.log(`📋 Full session: "${sessionTranscript.value}"`)
-    } else {
-      console.log(`⏭️ Skipped duplicate: "${newText}"`)
     }
-    
-    const sourceInfo = data.source ? `[${data.source}]` : ''
-    console.log(`📝 Partial ${sourceInfo}:`, newText)
   }
   
-  const handleFinalTranscript = async (data) => {
-    if (!isRecording.value) return
-    
-    finalText.value = data.text
-    isFinal.value = true
-    
-    // Accumulate final transcript to session
-    if (data.text && data.text.trim()) {
-      if (sessionTranscript.value) {
-        sessionTranscript.value += ' ' + data.text.trim()
-      } else {
-        sessionTranscript.value = data.text.trim()
-      }
-      
-      // Update display text to show full session
-      await replaceText(sessionTranscript.value, 20) // Medium speed for final text
-    }
-    
-    const sourceInfo = data.source ? `[${data.source}]` : ''
-    console.log(`✅ Final ${sourceInfo}:`, data.text?.substring(0, 50) + '...')
-    console.log(`📋 Session transcript now:`, sessionTranscript.value?.substring(0, 100) + '...')
-  }
-  
-  const handleWaveformData = (data) => {
-    waveformData.value = data.data || []
-  }
-  
-  const handleSourceChanged = (data) => {
-    audioSource.value = data.source
-    console.log('🔄 Audio source changed to:', data.source)
-  }
-  
-  const handleBackendStatus = (data) => {
-    console.log('📊 Backend status received:', data)
-    
-    // Sync session state with backend (don't override audio processing state)
-    currentSessionId.value = data.current_session_id || null
-    audioSource.value = data.audio_source || 'microphone'
-    
-    // If we're recording and have a current transcript, populate sessionTranscript
-    if (data.is_recording && data.current_transcript) {
-      console.log('📋 Populating sessionTranscript from backend:', data.current_transcript.substring(0, 100) + '...')
-      sessionTranscript.value = data.current_transcript
-      displayText.value = data.current_transcript
-    }
-    
-    console.log('🔄 State synchronized:', {
-      recording: isRecording.value,
-      session: currentSessionId.value,
-      source: audioSource.value,
-      transcriptLength: sessionTranscript.value?.length || 0
-    })
-  }
-
-  const handleError = (data) => {
-    console.error('❌ Transcription error:', data.error)
-    // Optionally show error to user
-  }
-  
-  // Main message dispatcher
+  // Legacy backend message handler (for non-state messages like sessions_list)
   const handleBackendMessage = (message) => {
+    // The main process now handles all state-related messages
+    // This is only for legacy compatibility with non-state messages
     switch (message.type) {
-      case 'connection_status':
-        handleConnectionStatus(message.connected)
+      case 'sessions_list':
+        if (message.sessions) {
+          sessions.value = message.sessions
+        }
         break
-      case 'recording_started':
-        handleRecordingStarted(message)
-        break
-      case 'recording_stopped':
-        handleRecordingStopped(message)
-        break
-      case 'partial_transcript':
-        handlePartialTranscript(message)
-        break
-      case 'final_transcript':
-        handleFinalTranscript(message)
-        break
-      case 'waveform_data':
-        handleWaveformData(message)
-        break
-      case 'source_changed':
-        handleSourceChanged(message)
-        break
-      case 'backend_status':
-        handleBackendStatus(message)
-        break
-      case 'error':
-        handleError(message)
+      case 'session_transcript':
+      case 'session_deleted':
+        // Forward to any listeners that need these messages
         break
       default:
-        console.warn('Unknown message type:', message.type)
+        // All other messages are handled by main process now
+        break
     }
   }
   
-  // Actions
+  // Actions - Only main window can control recording
   const toggleRecording = async () => {
+    
+    if (!isMainWindow) {
+      return
+    }
+    
     try {
-      await audioProcessing.toggleRecording()
-      
-      // Start session tracking when recording starts
-      if (isRecording.value) {
-        currentSessionId.value = Date.now().toString()
-        elapsedTime.value = 0
-        sessionTranscript.value = ''
-        displayText.value = ''
-        partialText.value = ''
-        finalText.value = ''
-        isFinal.value = false
+      if (audioProcessing) {
+        await audioProcessing.toggleRecording()
         
-        console.log('🎤 Frontend recording started, session:', currentSessionId.value)
+        // State synchronization is handled automatically by the watchers above
       } else {
-        // Notify backend that recording has stopped
-        if (window.electronAPI) {
-          await window.electronAPI.sendToBackend({
-            type: 'frontend_recording_stopped'
-          })
-        }
-        console.log('⏹️ Frontend recording stopped, session:', currentSessionId.value)
       }
     } catch (error) {
-      console.error('Error toggling frontend recording:', error)
     }
   }
   
-  const startRecording = async () => {
-    if (window.electronAPI) {
-      try {
-        await window.electronAPI.sendToBackend({
-          type: 'start_recording'
-        })
-      } catch (error) {
-        console.error('Error starting recording:', error)
-      }
-    }
-  }
-  
-  const stopRecording = async () => {
-    if (window.electronAPI) {
-      try {
-        await window.electronAPI.sendToBackend({
-          type: 'stop_recording'
-        })
-      } catch (error) {
-        console.error('Error stopping recording:', error)
-      }
-    }
-  }
-  
-  const toggleSource = async () => {
-    if (window.electronAPI) {
-      try {
-        await window.electronAPI.sendToBackend({
-          type: 'toggle_source'
-        })
-      } catch (error) {
-        console.error('Error toggling source:', error)
-      }
-    }
-  }
   
   const loadSessions = async () => {
     if (window.electronAPI) {
@@ -371,28 +209,16 @@ export const useTranscriptionStore = defineStore('transcription', () => {
       }
     }
   }
-
+  
+  // Utility functions for backend compatibility
   const queryBackendStatus = async () => {
     if (window.electronAPI) {
-      try {
-        await window.electronAPI.sendToBackend({
-          type: 'get_status'
-        })
-        console.log('📡 Queried backend status')
-      } catch (error) {
-        console.error('Error querying backend status:', error)
-      }
+      await window.electronAPI.sendToBackend({ type: 'get_status' })
     }
   }
   
-  const clearCurrentText = () => {
-    stopTyping()
-    displayText.value = ''
-    partialText.value = ''
-    finalText.value = ''
-    sessionTranscript.value = ''
-    isFinal.value = false
-  }
+  // Initialize global state when store is created
+  initializeGlobalState()
   
   // Cleanup
   const cleanup = () => {
@@ -400,7 +226,7 @@ export const useTranscriptionStore = defineStore('transcription', () => {
   }
   
   return {
-    // State
+    // Reactive State (from global state via IPC)
     isConnected,
     isRecording,
     isListening,
@@ -409,36 +235,30 @@ export const useTranscriptionStore = defineStore('transcription', () => {
     elapsedTime,
     displayText,
     partialText,
-    finalText,
     sessionTranscript,
     isFinal,
     waveformData,
     audioSource,
-    sessions,
     currentSession,
-    isTyping,
-    
-    // Computed
-    formattedTime,
     wordCount,
     charCount,
     
-    // Actions
-    handleBackendMessage,
-    toggleRecording,
-    startRecording,
-    stopRecording,
-    toggleSource,
-    loadSessions,
-    queryBackendStatus,
-    clearCurrentText,
-    instantText,
-    cleanup,
+    // Local State
+    sessions,
     
-    // Typing effects (exposed for manual control)
-    typeText,
-    replaceText,
-    appendText,
-    stopTyping
+    // Computed
+    formattedTime,
+    
+    // Actions
+    toggleRecording,
+    queryBackendStatus,
+    loadSessions,
+    initializeGlobalState,
+    
+    // Legacy compatibility
+    handleBackendMessage,
+    
+    // Cleanup
+    cleanup
   }
 })

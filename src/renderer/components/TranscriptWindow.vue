@@ -54,6 +54,7 @@
 
       <!-- Content -->
       <div class="flex-1 flex flex-col overflow-hidden relative">
+        
         <div
           v-if="!currentText && !isRecording"
           class="flex flex-col items-center justify-center h-full p-5 text-center"
@@ -140,14 +141,16 @@ export default {
     // Use global transcription store instead of props
     const transcriptionStore = useTranscriptionStore();
     const transcriptText = ref(null);
-    const transcript = ref("");
-    const lastProcessedText = ref("");
     const sessionStarted = ref(false);
 
     // Use computed properties from the store - prioritize sessionTranscript for full session context
     const currentText = computed(() => {
       // Show sessionTranscript if available (accumulated full session), fallback to displayText
-      return transcriptionStore.sessionTranscript || transcriptionStore.displayText
+      const sessionTranscript = transcriptionStore.sessionTranscript
+      const displayText = transcriptionStore.displayText
+      const result = sessionTranscript || displayText
+      
+      return result
     })
     const isRecording = computed(() => transcriptionStore.isRecording)
     const wordCount = computed(() => transcriptionStore.wordCount)
@@ -178,28 +181,29 @@ export default {
       () => transcriptionStore.isRecording,
       (newRecording, oldRecording) => {
         if (newRecording && !oldRecording) {
-          // Recording started - reset transcript for new session
-          console.log("🎙️ Recording started - resetting transcript");
-          transcript.value = "";
-          lastProcessedText.value = "";
           sessionStarted.value = true;
         } else if (!newRecording && oldRecording) {
-          // Recording stopped - session completed
-          console.log("🛑 Recording stopped - session completed");
           sessionStarted.value = false;
         }
       }
     );
 
-    // Auto-scroll to bottom when text updates
+    // Auto-scroll when text updates
     watch(
-      () => transcriptionStore.displayText,
+      () => currentText.value,
       () => {
         nextTick(() => {
           if (transcriptText.value) {
             transcriptText.value.scrollTop = transcriptText.value.scrollHeight;
           }
         });
+      }
+    )
+    
+    // Watch the computed currentText to see if it's updating
+    watch(
+      currentText,
+      (newVal, oldVal) => {
       }
     );
 
@@ -215,36 +219,13 @@ export default {
 
     onMounted(async () => {
       document.addEventListener("keydown", handleKeydown);
-      console.log("📋 TranscriptWindow mounted - connecting to store");
-      console.log("🎤 Current recording state:", transcriptionStore.isRecording);
-      console.log("📝 Current text:", transcriptionStore.displayText?.substring(0, 100) + "...");
-      console.log("🏪 Store state:", {
-        isConnected: transcriptionStore.isConnected,
-        isRecording: transcriptionStore.isRecording,
-        currentSessionId: transcriptionStore.currentSessionId,
-        sessionTranscript: transcriptionStore.sessionTranscript?.substring(0, 100) + "...",
-        displayText: transcriptionStore.displayText?.substring(0, 100) + "..."
-      });
       
-      // Query backend status to sync state
+      // Query backend status for session data
       await transcriptionStore.queryBackendStatus();
-      
-      // Wait a bit and check again
-      setTimeout(() => {
-        console.log("📊 Store state after status query:", {
-          isConnected: transcriptionStore.isConnected,
-          isRecording: transcriptionStore.isRecording,
-          currentSessionId: transcriptionStore.currentSessionId,
-          sessionTranscript: transcriptionStore.sessionTranscript?.substring(0, 100) + "...",
-          displayText: transcriptionStore.displayText?.substring(0, 100) + "...",
-          computedCurrentText: currentText.value?.substring(0, 100) + "..."
-        });
-      }, 1000);
     });
 
     onUnmounted(() => {
       document.removeEventListener("keydown", handleKeydown);
-      console.log("📋 TranscriptWindow unmounted");
     });
 
     return {
@@ -257,7 +238,6 @@ export default {
       
       // Local refs
       transcriptText,
-      transcript,
       
       // Actions
       closeWindow,
