@@ -166,45 +166,39 @@ export default {
     const selectedSession = ref(null);
     const transcriptText = ref(null);
 
-    // Mock data for now - will be replaced with actual backend data
+    // Backend message handler for sessions data
+    const handleBackendMessage = (message) => {
+      switch (message.type) {
+        case 'sessions_list':
+          sessions.value = message.sessions || [];
+          break;
+        case 'session_transcript':
+          if (selectedSession.value && selectedSession.value.id === message.session_id) {
+            selectedSession.value.fullText = message.transcript?.full_text || '';
+          }
+          break;
+        case 'session_deleted':
+          if (message.success) {
+            sessions.value = sessions.value.filter(s => s.id !== message.session_id);
+            // If we're viewing this session, go back to list
+            if (selectedSession.value && selectedSession.value.id === message.session_id) {
+              goBack();
+            }
+          }
+          break;
+      }
+    };
+
     const loadSessions = async () => {
       try {
-        // TODO: Load sessions from backend
-        const response = await window.electronAPI.sendToBackend({
+        await window.electronAPI.sendToBackend({
           type: 'get_sessions'
         });
-        // For now, use mock data
-        sessions.value = [
-          {
-            id: '1',
-            created_at: new Date().toISOString(),
-            source: 'System Audio',
-            duration: 180,
-            model: 'whisper-large-v3-turbo',
-            preview: 'Welcome to this comprehensive tutorial about machine learning and artificial intelligence. In today\'s session, we will explore the fundamental concepts...',
-            fullText: 'Welcome to this comprehensive tutorial about machine learning and artificial intelligence. In today\'s session, we will explore the fundamental concepts that form the backbone of modern AI systems. We\'ll start with supervised learning algorithms, move through unsupervised learning techniques, and conclude with an introduction to deep learning neural networks.'
-          },
-          {
-            id: '2', 
-            created_at: new Date(Date.now() - 3600000).toISOString(),
-            source: 'Microphone',
-            duration: 95,
-            model: 'whisper-large-v3-turbo', 
-            preview: 'Сегодня мы рассмотрим основы программирования на Python. Это очень важная тема для всех разработчиков...',
-            fullText: 'Сегодня мы рассмотрим основы программирования на Python. Это очень важная тема для всех разработчиков, особенно тех, кто только начинает свой путь в мире программирования. Python является одним из самых популярных языков программирования благодаря своей простоте и мощности.'
-          },
-          {
-            id: '3',
-            created_at: new Date(Date.now() - 7200000).toISOString(),
-            source: 'System Audio',
-            duration: 245,
-            model: 'whisper-large-v3-turbo',
-            preview: 'The quarterly earnings report shows significant improvement across all major product lines. Revenue has increased by 15% compared to...',
-            fullText: 'The quarterly earnings report shows significant improvement across all major product lines. Revenue has increased by 15% compared to the previous quarter, with particularly strong performance in our cloud services division. Customer satisfaction ratings have also improved, with our NPS score reaching an all-time high of 72.'
-          }
-        ];
+        // Response will come through backend message handler
       } catch (error) {
         console.error('Failed to load sessions:', error);
+        // Fallback to empty array
+        sessions.value = [];
       }
     };
 
@@ -244,9 +238,23 @@ export default {
       return text.length;
     };
 
-    const viewSession = (session) => {
+    const viewSession = async (session) => {
       selectedSession.value = session;
       currentView.value = 'detail';
+      
+      // Load full transcript if not already loaded
+      if (!session.fullText) {
+        try {
+          await window.electronAPI.sendToBackend({
+            type: 'get_session_transcript',
+            session_id: session.id
+          });
+          // Response will come through backend message handler
+        } catch (error) {
+          console.error('Failed to load session transcript:', error);
+        }
+      }
+      
       // Scroll to top when viewing session
       nextTick(() => {
         if (transcriptText.value) {
@@ -278,18 +286,11 @@ export default {
     const deleteSession = async (session) => {
       if (confirm('Are you sure you want to delete this transcript?')) {
         try {
-          // TODO: Delete from backend
           await window.electronAPI.sendToBackend({
             type: 'delete_session',
             session_id: session.id
           });
-          // Remove from local array
-          sessions.value = sessions.value.filter(s => s.id !== session.id);
-          
-          // If we're viewing this session, go back to list
-          if (selectedSession.value && selectedSession.value.id === session.id) {
-            goBack();
-          }
+          // Response will come through backend message handler
         } catch (error) {
           console.error('Failed to delete session:', error);
         }
@@ -322,12 +323,30 @@ export default {
 
     onMounted(async () => {
       document.addEventListener("keydown", handleKeydown);
+      
+      // Set up backend message listener
+      if (window.electronAPI) {
+        window.electronAPI.onBackendMessage((event, message) => {
+          handleBackendMessage(message);
+        });
+      }
+      
       await loadSessions();
       console.log("📋 ArchiveWindow mounted");
     });
 
     onUnmounted(() => {
       document.removeEventListener("keydown", handleKeydown);
+      
+      // Clean up backend message listener
+      if (window.electronAPI) {
+        try {
+          window.electronAPI.removeAllListeners('backend-message');
+        } catch (error) {
+          console.warn('Error cleaning up backend message listener:', error);
+        }
+      }
+      
       console.log("📋 ArchiveWindow unmounted");
     });
 

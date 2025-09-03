@@ -332,6 +332,37 @@ class DatabaseManager:
             
         return results
         
+    async def delete_session(self, session_id: str) -> bool:
+        """Delete a session and all its transcript segments"""
+        
+        try:
+            # Delete from FTS index first (referencing transcript_segments)
+            await self.db.execute("""
+                DELETE FROM transcript_fts 
+                WHERE rowid IN (
+                    SELECT id FROM transcript_segments WHERE session_id = ?
+                )
+            """, (session_id,))
+            
+            # Delete transcript segments
+            await self.db.execute("""
+                DELETE FROM transcript_segments WHERE session_id = ?
+            """, (session_id,))
+            
+            # Delete session
+            cursor = await self.db.execute("""
+                DELETE FROM sessions WHERE id = ?
+            """, (session_id,))
+            
+            await self.db.commit()
+            
+            # Check if session was actually deleted
+            return cursor.rowcount > 0
+            
+        except Exception as e:
+            await self.db.rollback()
+            raise e
+        
     async def get_transcription_stats(self) -> TranscriptionStats:
         """Get overall transcription statistics"""
         

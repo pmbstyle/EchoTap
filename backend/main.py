@@ -136,8 +136,9 @@ async def audio_callback(audio_data: bytes, sample_rate: int, source: str = "unk
             
             await broadcast_message(message_dict)
             
-            # Save to database if final
-            if result.get("is_final") and database and current_session_id:
+            # Save to database - save both partial and final results
+            # We'll save all transcription chunks to build up the complete transcript
+            if database and current_session_id and result.get("text", "").strip():
                 await database.add_transcript_segment(
                     session_id=current_session_id,
                     text=result["text"],
@@ -261,6 +262,16 @@ async def handle_websocket_message(websocket: WebSocket, message: Dict):
                     "transcript": transcript
                 }))
                 
+        elif message_type == "delete_session":
+            session_id = message.get("session_id")
+            if database and session_id:
+                success = await database.delete_session(session_id)
+                await websocket.send_text(json.dumps({
+                    "type": "session_deleted",
+                    "session_id": session_id,
+                    "success": success
+                }))
+                
         elif message_type == "update_preferences":
             preferences = message.get("preferences")
             if preferences and transcription_engine:
@@ -331,8 +342,13 @@ async def start_recording():
         
         # Create new session
         if database:
+            current_source = audio_capture.get_current_source() if audio_capture else "unknown"
+            # If source is "none", default to "microphone" for now
+            if current_source == "none":
+                current_source = "microphone"
+                
             session_data = SessionData(
-                source=audio_capture.get_current_source() if audio_capture else "unknown",
+                source=current_source,
                 model=transcription_engine.get_current_model() if transcription_engine else "unknown"
             )
             current_session_id = await database.create_session(session_data)
