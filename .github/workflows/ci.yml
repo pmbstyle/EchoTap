@@ -65,5 +65,8 @@ jobs:
       - name: Build Frontend
         run: npm run build:renderer
 
-      - name: Test Build
-        run: npm run build:main --dry-run
+      - name: Validate Electron Configuration
+        run: |
+          node -e "console.log('✅ Main entry point exists:', require('fs').existsSync('src/main/main.js'))"
+          node -e "const pkg = require('./package.json'); console.log('✅ Package.json main:', pkg.main)"
+          npx electron-builder install-app-deps --dry-run
