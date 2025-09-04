@@ -13,7 +13,7 @@
       <div
         class="flex items-center gap-3 min-w-24 px-3 py-1.5 rounded-full transition-all duration-300"
         :class="
-          isRecording ? 'bg-red-500/15 dark:bg-red-500/20' : 'bg-transparent'
+          isRecording ? 'bg-red-500/15 dark:bg-red-500/20' : 'bg-white/80 dark:bg-white/80'
         "
       >
         <div
@@ -169,7 +169,6 @@ export default {
     });
 
     const toggleMicrophone = () => {
-      // Toggle between system audio and microphone
       if (window.electronAPI) {
         window.electronAPI.sendToBackend({
           type: "toggle_source",
@@ -189,7 +188,6 @@ export default {
 </script>
 
 <style scoped>
-/* Keep only necessary no-drag styles */
 button {
   -webkit-app-region: no-drag;
 }

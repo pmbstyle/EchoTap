@@ -16,6 +16,10 @@ export function useAudioProcessing() {
   const waveformData = ref(new Array(20).fill(0))
   const isRecording = ref(false)
   
+  // 1-second chunked streaming during speech
+  const chunkingMediaRecorder = ref(null)
+  const isStreamingChunks = ref(false)
+  
   // Audio analysis for real-time waveform
   const audioDataArray = ref(null)
   const waveformUpdateInterval = ref(null)
@@ -51,6 +55,19 @@ export function useAudioProcessing() {
       
       // Initialize audio data array
       audioDataArray.value = new Uint8Array(analyserNode.value.frequencyBinCount)
+      
+      // Initialize MediaRecorder for 1-second chunked streaming
+      chunkingMediaRecorder.value = new MediaRecorder(mediaStream.value, {
+        mimeType: 'audio/webm',
+        audioBitsPerSecond: 16000
+      })
+      
+      chunkingMediaRecorder.value.ondataavailable = async (event) => {
+        if (event.data.size > 0 && isStreamingChunks.value) {
+          console.log(`📦 Processing 1-second chunk: ${event.data.size} bytes`)
+          await processAudioChunk(event.data)
+        }
+      }
       
       console.log('✅ Audio context initialized successfully')
       return true
@@ -151,7 +168,7 @@ export function useAudioProcessing() {
     }
     
     try {
-      console.log(`🎤 Processing audio: ${audioFloat32Array.length} samples`)
+      console.log(`🎤 Processing VAD audio: ${audioFloat32Array.length} samples`)
       
       // Convert to WAV format
       const wavBuffer = float32ArrayToWav(audioFloat32Array, 16000)
@@ -166,9 +183,72 @@ export function useAudioProcessing() {
       }
       
     } catch (error) {
-      console.error('❌ Error processing audio:', error)
+      console.error('❌ Error processing VAD audio:', error)
     }
   }
+  
+  const processAudioChunk = async (audioBlob) => {
+    try {
+      console.log(`📦 Processing 1-second chunk: ${audioBlob.size} bytes`)
+      
+      // Convert WebM audio to Float32Array using Web Audio API
+      const arrayBuffer = await audioBlob.arrayBuffer()
+      
+      if (arrayBuffer.byteLength === 0) {
+        console.log('⚠️ Empty audio chunk, skipping')
+        return
+      }
+      
+      const audioBuffer = await audioContext.value.decodeAudioData(arrayBuffer)
+      
+      // Extract audio samples (mono channel)
+      const audioSamples = audioBuffer.getChannelData(0)
+      
+      // Convert to WAV format
+      const wavBuffer = float32ArrayToWav(audioSamples, audioBuffer.sampleRate)
+      
+      // Send to backend for transcription
+      if (window.electronAPI) {
+        await window.electronAPI.sendToBackend({
+          type: 'transcribe_audio',
+          audio_data: Array.from(new Uint8Array(wavBuffer)),
+          sample_rate: audioBuffer.sampleRate
+        })
+      }
+      
+    } catch (error) {
+      console.warn('⚠️ Error processing 1-second chunk:', error.message)
+    }
+  }
+  
+  const startChunkedStreaming = () => {
+    if (!chunkingMediaRecorder.value || isStreamingChunks.value) return
+    
+    try {
+      isStreamingChunks.value = true
+      // Start recording in 1-second chunks
+      chunkingMediaRecorder.value.start(1000) // 1000ms = 1 second
+      console.log('🎬 Started 1-second chunked streaming')
+    } catch (error) {
+      console.error('❌ Error starting chunked streaming:', error)
+      isStreamingChunks.value = false
+    }
+  }
+  
+  const stopChunkedStreaming = () => {
+    if (!chunkingMediaRecorder.value || !isStreamingChunks.value) return
+    
+    try {
+      if (chunkingMediaRecorder.value.state === 'recording') {
+        chunkingMediaRecorder.value.stop()
+      }
+      isStreamingChunks.value = false
+      console.log('🛑 Stopped 1-second chunked streaming')
+    } catch (error) {
+      console.error('❌ Error stopping chunked streaming:', error)
+    }
+  }
+
   
   const initializeVAD = async () => {
     if (vadInstance.value || isVadInitializing.value) {
@@ -191,11 +271,16 @@ export function useAudioProcessing() {
       const vad_instance = await vad.MicVAD.new({
         onSpeechStart: () => {
           isSpeechDetected.value = true
-          console.log('🗣️ Speech started')
+          lastVadActivityTime.value = Date.now()
+          console.log('🗣️ Speech started - beginning 1-second chunked streaming')
+          startChunkedStreaming()
         },
         onSpeechEnd: (audio) => {
           console.log(`🔇 Speech ended: ${audio?.length} samples`)
           isSpeechDetected.value = false
+          
+          // Stop chunked streaming and process final VAD chunk
+          stopChunkedStreaming()
           
           if (isListening.value && audio && audio.length > 0) {
             processAudioRecording(audio)
@@ -251,81 +336,64 @@ export function useAudioProcessing() {
       mediaStream.value = null
     }
     
+    // Clean up 1-second chunked MediaRecorder
+    if (chunkingMediaRecorder.value && chunkingMediaRecorder.value.state !== 'inactive') {
+      chunkingMediaRecorder.value.stop()
+    }
+    chunkingMediaRecorder.value = null
+    isStreamingChunks.value = false
+    
     audioDataArray.value = null
-    console.log('🧹 Audio resources cleaned up')
   }
   
   const startRecording = async () => {
     if (isRecording.value) return
     
-    console.log('🔴 Starting recording...')
-    
     // Initialize audio context if needed
     if (!audioContext.value) {
       const success = await initializeAudioContext()
       if (!success) {
-        console.error('❌ Failed to start recording: Audio context initialization failed')
+        console.error('Failed to start recording: Audio context initialization failed')
         return
       }
     }
     
-    // Initialize VAD if needed
     if (!vadInstance.value) {
       await initializeVAD()
     }
     
-    // Start VAD
     if (vadInstance.value) {
       vadInstance.value.start()
       isListening.value = true
     }
     
-    // Start waveform visualization
     startWaveformVisualization()
     
     isRecording.value = true
-    console.log('✅ Recording started')
   }
   
   const stopRecording = async () => {
     if (!isRecording.value) return
     
-    console.log('⏹️ Stopping recording...')
+    // Stop any ongoing chunked streaming
+    stopChunkedStreaming()
     
-    // Force flush any remaining audio from VAD before stopping
-    if (vadInstance.value && isSpeechDetected.value) {
-      console.log('🔄 Flushing remaining audio before stop...')
-      try {
-        // Force the VAD to process any remaining audio
-        // The VAD library doesn't have a direct flush method, so we'll use a small delay
-        // to allow any pending audio processing to complete
-        await new Promise(resolve => setTimeout(resolve, 100))
-      } catch (error) {
-        console.warn('⚠️ Error flushing VAD audio:', error)
-      }
-    }
-    
-    // Stop VAD
     if (vadInstance.value) {
       vadInstance.value.pause()
       isListening.value = false
     }
     
-    // Stop waveform visualization
     stopWaveformVisualization()
     
-    // Notify backend that recording stopped
     if (window.electronAPI) {
       await window.electronAPI.sendToBackend({
         type: 'frontend_recording_stopped'
       })
-      console.log('📤 Sent frontend_recording_stopped to backend')
     }
     
     isRecording.value = false
     isSpeechDetected.value = false
     
-    console.log('✅ Recording stopped')
   }
   
   const toggleRecording = async () => {

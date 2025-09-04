@@ -25,7 +25,7 @@ export default {
     },
     maxBars: {
       type: Number,
-      default: 20
+      default: 30
     },
     minHeight: {
       type: Number,
@@ -45,6 +45,7 @@ export default {
     let animationId = null
     let bars = []
     let targetBars = []
+    let audioHistory = [] // Store recent audio data for shifting effect
 
     // Initialize with random static bars for idle state
     const initializeBars = () => {
@@ -54,6 +55,7 @@ export default {
         velocity: 0
       }))
       targetBars = [...bars]
+      audioHistory = Array(props.maxBars).fill(0.05) // Initialize history
     }
 
     // Smooth animation between states
@@ -112,15 +114,16 @@ export default {
     // Update bars based on audio data or state
     const updateBars = () => {
       if (props.isRecording && props.data && props.data.length > 0) {
-        // Use actual audio data - ensure we have exactly maxBars values
-        const audioData = props.data.slice(0, props.maxBars)
+        // Get the latest audio data point (or average if multiple)
+        const latestAmplitude = props.data.length > 0 ? 
+          props.data.reduce((sum, val) => sum + val, 0) / props.data.length : 0.05
         
-        // Pad with baseline if needed
-        while (audioData.length < props.maxBars) {
-          audioData.push(0.05)
-        }
+        // Shift history left and add new data on the right
+        audioHistory.shift() // Remove leftmost (oldest)
+        audioHistory.push(latestAmplitude) // Add rightmost (newest)
         
-        targetBars = audioData.map(amplitude => ({
+        // Create target heights from history (newest data appears on right)
+        targetBars = audioHistory.map(amplitude => ({
           targetHeight: props.minHeight + (amplitude * (props.maxHeight - props.minHeight))
         }))
       } else if (props.isRecording) {
@@ -134,7 +137,8 @@ export default {
           }
         })
       } else {
-        // Idle state - subtle static bars
+        // Idle state - subtle static bars and reset history
+        audioHistory = Array(props.maxBars).fill(0.05)
         targetBars = Array(props.maxBars).fill().map(() => ({
           targetHeight: props.minHeight + Math.random() * 1.5
         }))

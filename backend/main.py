@@ -8,7 +8,6 @@ import os
 import sys
 from datetime import datetime
 
-# Fix OpenMP library conflict issue
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -168,17 +167,45 @@ async def handle_frontend_audio(message: Dict):
                 await broadcast_message(partial_message)
                 await asyncio.sleep(0.1)  # Small delay between messages
                 
-                # Update session transcript
+                # Simple transcript merging for 1-second chunks with minimal overlap
                 new_text = result["text"].strip()
-                if new_text and (not current_session_transcript or new_text not in current_session_transcript):
-                    if current_session_transcript:
-                        current_session_transcript += " " + new_text
-                    else:
+                if new_text:
+                    if not current_session_transcript:
+                        # First transcription
                         current_session_transcript = new_text
+                        logger.info(f"✅ Started transcript: '{new_text[:50]}...'")
+                    else:
+                        # Simple overlap detection for 1-second chunks
+                        current_words = current_session_transcript.split()
+                        new_words = new_text.split()
+                        
+                        # Check for small overlap at the end of current transcript with start of new text
+                        max_check = min(5, len(current_words), len(new_words))  # Check only last 5 words
+                        overlap_found = False
+                        
+                        for i in range(1, max_check + 1):
+                            # Check if last i words of current match first i words of new
+                            if current_words[-i:] == new_words[:i]:
+                                # Found overlap, add only the non-overlapping part
+                                new_content_words = new_words[i:]
+                                if new_content_words:
+                                    new_content = " ".join(new_content_words)
+                                    current_session_transcript += " " + new_content
+                                    logger.info(f"✅ Merged with {i}-word overlap: '{new_content[:50]}...'")
+                                else:
+                                    logger.info(f"⏩ Skipped - complete overlap ({i} words)")
+                                overlap_found = True
+                                break
+                        
+                        if not overlap_found:
+                            # No overlap, add as separate content
+                            current_session_transcript += " " + new_text
+                            logger.info(f"✅ Added separate content: '{new_text[:50]}...'")
+                
                 
                 await broadcast_message(final_message)
                 
-                # Save to database
+                # Save to database (merging logic above ensures no duplicates)
                 if database and current_session_id:
                     await database.add_transcript_segment(
                         session_id=current_session_id,
@@ -187,8 +214,6 @@ async def handle_frontend_audio(message: Dict):
                         end_time=float(result.get("end_time", 0)),
                         confidence=float(result.get("confidence", 0.0))
                     )
-                
-                logger.info(f"✅ Transcribed: '{new_text[:50]}...'")
                 
     except Exception as e:
         logger.error(f"Error handling frontend audio: {e}")
@@ -283,8 +308,6 @@ async def handle_websocket_message(websocket: WebSocket, message: Dict):
             preferences = message.get("preferences")
             if preferences and transcription_engine:
                 await transcription_engine.update_preferences(preferences)
-                if audio_capture:
-                    await audio_capture.update_preferences(preferences)
                     
         elif message_type == "get_models":
             if transcription_engine:
@@ -368,13 +391,19 @@ async def handle_frontend_recording_stopped():
         is_recording = False
         session_id = current_session_id
         
+        # End transcription session to process remaining audio chunks
+        if transcription_engine and current_session_id:
+            logger.info("🔄 Processing remaining audio chunks before stopping...")
+            await transcription_engine.end_session(current_session_id)
+        
         # Complete session in database
         if database and current_session_id:
             await database.complete_session(current_session_id)
         
-        # Reset session state
+        # Reset session ID but preserve transcript for transcription window access
         current_session_id = None
-        current_session_transcript = ""
+        # Keep current_session_transcript available for transcription window retrieval
+        # It will be cleared when a new session starts
         
         await broadcast_message({
             "type": "recording_stopped",

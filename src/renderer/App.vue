@@ -1,18 +1,15 @@
 <template>
   <div class="w-full h-full font-sans antialiased overflow-hidden bg-transparent rounded-full transition-all duration-200 p-3" :class="{ 'dark-mode': isDarkMode }">
-    <!-- Transcript Mode - Show only transcript -->
     <TranscriptWindow
       v-if="isTranscriptMode"
       @close="closeWindow"
     />
     
-    <!-- Archive Mode - Show only archive -->
     <ArchiveWindow
       v-else-if="isArchiveMode"
       @close="closeWindow"
     />
     
-    <!-- Normal Mode - Show capsule and modals -->
     <template v-else>
       <CapsuleBar 
         :is-recording="transcriptionStore.isRecording"
@@ -29,19 +26,9 @@
         @close="closeWindow"
       />
       
-      <ArchiveModal 
-        v-if="showArchive"
-        @close="showArchive = false"
-      />
-      
-      <PreferencesModal
+      <PreferencesWindow
         v-if="showPreferences"
         @close="showPreferences = false"
-      />
-      
-      <OverlayCaption
-        v-if="showOverlay"
-        :text="transcriptionStore.displayText"
       />
     </template>
   </div>
@@ -52,50 +39,40 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useAppStore } from './stores/app'
 import { useTranscriptionStore } from './stores/transcription'
 import CapsuleBar from './components/CapsuleBar.vue'
-import ArchiveModal from './components/ArchiveModal.vue'
 import ArchiveWindow from './components/ArchiveWindow.vue'
-import PreferencesModal from './components/PreferencesModal.vue'
+import PreferencesWindow from './components/PreferencesWindow.vue'
 import TranscriptWindow from './components/TranscriptWindow.vue'
-import OverlayCaption from './components/OverlayCaption.vue'
 
 export default {
   name: 'App',
   components: {
     CapsuleBar,
-    ArchiveModal,
     ArchiveWindow,
-    PreferencesModal,
+    PreferencesWindow,
     TranscriptWindow,
-    OverlayCaption
   },
   setup() {
     const appStore = useAppStore()
     const transcriptionStore = useTranscriptionStore()
     
-    // Check if this is transcript mode or archive mode
     const isTranscriptMode = ref(false)
     const isArchiveMode = ref(false)
     
-    // UI state
     const showArchive = ref(false)
     const showPreferences = ref(false)
-    const showOverlay = ref(false)
     const showTranscript = ref(false)
     const isDarkMode = ref(true)
     
-    // Track external window states
     const transcriptWindowOpen = ref(false)
     const archiveWindowOpen = ref(false)
     
     let recordingStartTime = 0
     let timerInterval = null
 
-    // Timer management
     const startTimer = () => {
       recordingStartTime = Date.now()
       timerInterval = setInterval(() => {
         const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000)
-        // Update global state via IPC instead of directly modifying computed property
         if (window.electronAPI) {
           window.electronAPI.updateAppState({ elapsedTime: elapsed })
         }
@@ -107,30 +84,24 @@ export default {
         clearInterval(timerInterval)
         timerInterval = null
       }
-      // Reset elapsed time when stopping
       if (window.electronAPI) {
         window.electronAPI.updateAppState({ elapsedTime: 0 })
       }
     }
 
-    // Backend message handler - now delegates to transcription store
     const handleBackendMessage = (event, message) => {
-      // Handle recording state changes for timer
       if (message.type === 'recording_started') {
         startTimer()
       } else if (message.type === 'recording_stopped') {
         stopTimer()
       }
       
-      // Delegate all transcription handling to the store
       transcriptionStore.handleBackendMessage(message)
     }
 
-    // Watch for frontend recording state changes to control timer
     watch(
       () => transcriptionStore.isRecording,
       (newIsRecording, oldIsRecording) => {
-        console.log(`🔍 Recording state changed: ${oldIsRecording} → ${newIsRecording} (window: ${isTranscriptMode.value ? 'transcript' : 'main'})`)
         if (newIsRecording && !oldIsRecording) {
           console.log('⏰ Starting timer - recording began')
           startTimer()
@@ -167,11 +138,9 @@ export default {
       console.log('📋 Show transcript clicked, current window state:', transcriptWindowOpen.value)
       if (window.electronAPI) {
         if (transcriptWindowOpen.value) {
-          // Window is open, close it
           window.electronAPI.closeTranscript()
           transcriptWindowOpen.value = false
         } else {
-          // Window is closed, open it
           window.electronAPI.showTranscript()
           transcriptWindowOpen.value = true
         }
@@ -183,11 +152,9 @@ export default {
     const handleShowArchive = () => {
       if (window.electronAPI) {
         if (archiveWindowOpen.value) {
-          // Window is open, close it
           window.electronAPI.closeArchive()
           archiveWindowOpen.value = false
         } else {
-          // Window is closed, open it
           window.electronAPI.showArchive()
           archiveWindowOpen.value = true
         }
@@ -197,7 +164,6 @@ export default {
     }
 
     const handleCopyTranscript = () => {
-      // Copy current text to clipboard
       if (currentText.value) {
         navigator.clipboard.writeText(currentText.value).catch(error => {
           console.warn('Failed to copy to clipboard:', error)
@@ -205,33 +171,22 @@ export default {
       }
     }
 
-    const handleToggleOverlay = () => {
-      showOverlay.value = !showOverlay.value
-    }
-
     onMounted(async () => {
-      // Check if this is transcript mode or archive mode
       const urlParams = new URLSearchParams(window.location.search)
       isTranscriptMode.value = urlParams.get('mode') === 'transcript'
       isArchiveMode.value = urlParams.get('mode') === 'archive'
-      
-      console.log('App mounted, transcript mode:', isTranscriptMode.value, 'archive mode:', isArchiveMode.value)
-      
-      // Check if we're running in Electron
+
       if (window.electronAPI) {
         try {
-          // Setup event listeners
           window.electronAPI.onBackendMessage(handleBackendMessage)
           
           if (!isTranscriptMode.value && !isArchiveMode.value) {
-            // Only setup these listeners in normal mode
             window.electronAPI.onShowPreferences(() => {
               showPreferences.value = true
             })
             window.electronAPI.onCopyTranscript(handleCopyTranscript)
             window.electronAPI.onToggleOverlay(handleToggleOverlay)
             
-            // Listen for window state changes
             window.electronAPI.onTranscriptWindowClosed(() => {
               transcriptWindowOpen.value = false
               console.log('📋 Transcript window closed')
@@ -241,20 +196,10 @@ export default {
               console.log('📚 Archive window closed')
             })
           }
-          
-          // If in transcript mode, query backend status to sync with any ongoing recording
-          // DISABLED: Transcript windows should not query backend status as it can interfere with recording state
-          // Only the main window should manage recording state
-          if (false && isTranscriptMode.value) {
-            console.log('📋 Transcript window initializing - querying backend status')
-            await transcriptionStore.queryBackendStatus()
-          }
 
-          // Load theme preference - default to dark
           const theme = await window.electronAPI.getStoreValue('theme')
           isDarkMode.value = (theme === null || theme === undefined || theme !== 'light')
-          
-          // Apply dark mode class to document
+
           document.documentElement.classList.toggle('dark-mode', isDarkMode.value)
           console.log('Theme loaded:', theme, 'Dark mode:', isDarkMode.value)
         } catch (error) {
@@ -262,7 +207,6 @@ export default {
         }
       } else {
         console.log('Running in browser mode - Electron APIs not available')
-        // Set default theme for browser - force dark mode
         isDarkMode.value = true
         document.documentElement.classList.toggle('dark-mode', isDarkMode.value)
         console.log('Browser mode - Dark mode forced:', isDarkMode.value)
@@ -270,7 +214,6 @@ export default {
     })
 
     onUnmounted(() => {
-      // Clean up event listeners
       if (window.electronAPI) {
         try {
           window.electronAPI.removeAllListeners('backend-message')
@@ -292,7 +235,6 @@ export default {
       transcriptionStore,
       showArchive,
       showPreferences,
-      showOverlay,
       showTranscript,
       isDarkMode,
       handleToggleRecording,

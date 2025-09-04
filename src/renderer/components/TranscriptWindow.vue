@@ -220,6 +220,9 @@ export default {
     onMounted(async () => {
       document.addEventListener("keydown", handleKeydown);
       
+      // Wait a moment for any final chunk processing to complete before querying status
+      await new Promise(resolve => setTimeout(resolve, 300))
+      
       // Query backend status for session data
       await transcriptionStore.queryBackendStatus();
     });

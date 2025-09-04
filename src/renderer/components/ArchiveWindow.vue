@@ -127,7 +127,7 @@
                 {{ formatDate(selectedSession.created_at) }}
               </h3>
               <div class="text-sm text-gray-600 dark:text-gray-400">
-                {{ selectedSession.source }} • {{ formatDuration(selectedSession.duration) }} • {{ selectedSession.model }}
+                {{ selectedSession.source }} • {{ formatDuration(selectedSession.duration) }}
               </div>
             </div>
             
@@ -162,11 +162,10 @@ export default {
     const transcriptionStore = useTranscriptionStore();
     const searchQuery = ref('');
     const sessions = ref([]);
-    const currentView = ref('list'); // 'list' or 'detail'
+    const currentView = ref('list');
     const selectedSession = ref(null);
     const transcriptText = ref(null);
 
-    // Backend message handler for sessions data
     const handleBackendMessage = (message) => {
       switch (message.type) {
         case 'sessions_list':
@@ -180,7 +179,6 @@ export default {
         case 'session_deleted':
           if (message.success) {
             sessions.value = sessions.value.filter(s => s.id !== message.session_id);
-            // If we're viewing this session, go back to list
             if (selectedSession.value && selectedSession.value.id === message.session_id) {
               goBack();
             }
@@ -194,10 +192,8 @@ export default {
         await window.electronAPI.sendToBackend({
           type: 'get_sessions'
         });
-        // Response will come through backend message handler
       } catch (error) {
         console.error('Failed to load sessions:', error);
-        // Fallback to empty array
         sessions.value = [];
       }
     };
@@ -242,20 +238,17 @@ export default {
       selectedSession.value = session;
       currentView.value = 'detail';
       
-      // Load full transcript if not already loaded
       if (!session.fullText) {
         try {
           await window.electronAPI.sendToBackend({
             type: 'get_session_transcript',
             session_id: session.id
           });
-          // Response will come through backend message handler
         } catch (error) {
           console.error('Failed to load session transcript:', error);
         }
       }
       
-      // Scroll to top when viewing session
       nextTick(() => {
         if (transcriptText.value) {
           transcriptText.value.scrollTop = 0;
@@ -290,7 +283,6 @@ export default {
             type: 'delete_session',
             session_id: session.id
           });
-          // Response will come through backend message handler
         } catch (error) {
           console.error('Failed to delete session:', error);
         }
@@ -298,14 +290,12 @@ export default {
     };
 
     const closeWindow = () => {
-      // Check if we're in archive mode (separate window)
       const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.get("mode") === "archive" && window.electronAPI) {
         window.electronAPI.closeArchive();
       }
     };
 
-    // Handle keyboard shortcuts
     const handleKeydown = (event) => {
       if (event.key === "Escape") {
         if (currentView.value === 'detail') {
@@ -324,7 +314,6 @@ export default {
     onMounted(async () => {
       document.addEventListener("keydown", handleKeydown);
       
-      // Set up backend message listener
       if (window.electronAPI) {
         window.electronAPI.onBackendMessage((event, message) => {
           handleBackendMessage(message);
@@ -338,7 +327,6 @@ export default {
     onUnmounted(() => {
       document.removeEventListener("keydown", handleKeydown);
       
-      // Clean up backend message listener
       if (window.electronAPI) {
         try {
           window.electronAPI.removeAllListeners('backend-message');
@@ -374,7 +362,6 @@ export default {
 </script>
 
 <style scoped>
-/* Custom scrollbar */
 .overflow-y-auto::-webkit-scrollbar {
   width: 6px;
 }

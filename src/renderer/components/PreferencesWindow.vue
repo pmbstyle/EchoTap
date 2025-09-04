@@ -170,7 +170,7 @@
 import { ref, onMounted } from 'vue'
 
 export default {
-  name: 'PreferencesModal',
+  name: 'PreferencesWindow',
   emits: ['close'],
   setup(props, { emit }) {
     const preferences = ref({
