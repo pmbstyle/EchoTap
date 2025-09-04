@@ -14,6 +14,21 @@ EchoTap transcribes audio from any desktop source - system audio, microphone, or
 - Python 3.8+ with pip
 - Git
 
+### System Dependencies
+
+**macOS:**
+```bash
+brew install portaudio
+```
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get update
+sudo apt-get install portaudio19-dev python3-dev
+```
+
+**Windows:** No additional dependencies needed
+
 ### Installation
 
 ```bash
