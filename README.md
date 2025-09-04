@@ -2,7 +2,7 @@
 
 **Local real-time transcription with beautiful UI**
 
-*Captions for anything. Locally.*
+_Captions for anything. Locally._
 
 EchoTap is a desktop application that provides real-time speech-to-text transcription using local AI models. No cloud dependencies, complete privacy, and beautiful design inspired by modern macOS interfaces.
 
@@ -44,6 +44,7 @@ The app will launch with the backend server running on port 8888.
 ### System Audio Setup
 
 **macOS**: Install [BlackHole 2ch](https://github.com/ExistentialAudio/BlackHole) for system audio capture:
+
 ```bash
 brew install blackhole-2ch
 ```
@@ -55,12 +56,14 @@ brew install blackhole-2ch
 ## 🏗️ Architecture
 
 ### Frontend (Electron + Vue.js)
+
 - **Electron**: Cross-platform desktop app framework
 - **Vue 3**: Reactive UI with Composition API
 - **Pinia**: State management
 - **Native styling**: Platform-aware design system
 
 ### Backend (Python + FastAPI)
+
 - **FastAPI**: High-performance async web framework
 - **faster-whisper**: Optimized Whisper implementation with CTranslate2
 - **SQLite**: Local database with full-text search
@@ -107,7 +110,7 @@ backend/
 EchoTap includes several Whisper models with different trade-offs:
 
 - **tiny** (39 MB): Fastest, good for quick notes
-- **base** (74 MB): **Recommended** - balanced speed and accuracy  
+- **base** (74 MB): **Recommended** - balanced speed and accuracy
 - **small** (244 MB): Better accuracy for important content
 - **medium** (769 MB): Best accuracy for professional use
 
@@ -160,6 +163,7 @@ electron-builder --linux
 ## 📁 Project Structure
 
 ### Frontend Architecture
+
 - **CapsuleBar**: Main floating UI component
 - **WaveformVisualization**: Real-time audio visualization
 - **ArchiveModal**: Session browser with search
@@ -167,12 +171,14 @@ electron-builder --linux
 - **OverlayCaption**: Resizable overlay text
 
 ### Backend Architecture
+
 - **AudioCapture**: Cross-platform audio input handling
 - **TranscriptionEngine**: Whisper model management and processing
 - **DatabaseManager**: SQLite operations with full-text search
 - **WebSocket Server**: Real-time frontend communication
 
 ### Data Flow
+
 1. Audio captured from system/microphone
 2. Chunked and processed through Whisper
 3. Results streamed to frontend via WebSocket
@@ -182,6 +188,7 @@ electron-builder --linux
 ## ⚙️ Configuration
 
 ### User Preferences
+
 - **Audio Source**: System audio vs microphone
 - **Language**: Auto-detect or specify (50+ languages supported)
 - **Model Size**: Tiny/Base/Small/Medium
@@ -191,6 +198,7 @@ electron-builder --linux
 - **Shortcuts**: Customizable global hotkeys
 
 ### Advanced Settings
+
 - **Chunk Duration**: Audio processing window (default: 3s)
 - **Overlap**: Chunk overlap for continuity (default: 0.5s)
 - **Sample Rate**: Audio sample rate (16kHz recommended)
@@ -201,21 +209,25 @@ electron-builder --linux
 ### Common Issues
 
 **"No audio detected"**
+
 - Check microphone permissions in system settings
 - Ensure correct audio source is selected
 - Verify audio levels in system mixer
 
 **"Model download failed"**
+
 - Check internet connection for initial download
 - Clear model cache: Delete `~/.config/EchoTap/models/`
 - Try smaller model first (tiny/base)
 
 **"High CPU usage"**
+
 - Switch to smaller model (base → tiny)
 - Adjust VAD sensitivity in preferences
 - Close other resource-intensive applications
 
 **macOS system audio not working**
+
 - Install BlackHole: `brew install blackhole-2ch`
 - Set BlackHole as system output in Audio MIDI Setup
 - Restart EchoTap after BlackHole installation
@@ -246,6 +258,7 @@ electron-builder --linux
 7. Open a Pull Request
 
 ### Development Guidelines
+
 - Follow existing code style and patterns
 - Add tests for new features
 - Update documentation as needed

@@ -13,7 +13,9 @@
       <div
         class="flex items-center gap-3 min-w-24 px-3 py-1.5 rounded-full transition-all duration-300"
         :class="
-          isRecording ? 'bg-red-500/15 dark:bg-red-500/20' : 'bg-white/80 dark:bg-white/80'
+          isRecording
+            ? 'bg-red-500/15 dark:bg-red-500/20'
+            : 'bg-white/80 dark:bg-white/80'
         "
       >
         <div
@@ -38,17 +40,39 @@
             !isConnected
               ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
               : isRecording
-              ? 'bg-red-500 text-white shadow-red-500/30 shadow-lg cursor-pointer hover:scale-110 active:scale-95'
-              : 'bg-black/10 dark:bg-white/15 text-black/80 dark:text-white/90 hover:bg-black/15 dark:hover:bg-white/20 cursor-pointer hover:scale-110 active:scale-95'
+                ? 'bg-red-500 text-white shadow-red-500/30 shadow-lg cursor-pointer hover:scale-110 active:scale-95'
+                : 'bg-black/10 dark:bg-white/15 text-black/80 dark:text-white/90 hover:bg-black/15 dark:hover:bg-white/20 cursor-pointer hover:scale-110 active:scale-95',
           ]"
-          @click="isConnected ? (console.log('🎤 Recording button clicked'), $emit('toggle-recording')) : null"
+          @click="
+            isConnected
+              ? (console.log('🎤 Recording button clicked'),
+                $emit('toggle-recording'))
+              : null
+          "
           :disabled="!isConnected"
           :title="!isConnected ? 'Initializing...' : 'Toggle Recording (⌘R)'"
         >
           <!-- Loading spinner when not connected -->
-          <svg v-if="!isConnected" class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" opacity="0.3"/>
-            <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <svg
+            v-if="!isConnected"
+            class="w-4 h-4 animate-spin"
+            viewBox="0 0 24 24"
+            fill="none"
+          >
+            <circle
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              stroke-width="2"
+              opacity="0.3"
+            />
+            <path
+              d="M12 2a10 10 0 0 1 10 10"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
           </svg>
           <!-- Microphone icon when connected -->
           <svg v-else class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
@@ -59,9 +83,19 @@
         </button>
         <span
           class="text-sm font-medium whitespace-nowrap"
-          :class="!isConnected ? 'text-gray-500 dark:text-gray-400' : 'text-black/80 dark:text-white/90'"
+          :class="
+            !isConnected
+              ? 'text-gray-500 dark:text-gray-400'
+              : 'text-black/80 dark:text-white/90'
+          "
         >
-          {{ !isConnected ? "Initializing..." : isRecording ? "Listening…" : "Start Recording" }}
+          {{
+            !isConnected
+              ? 'Initializing...'
+              : isRecording
+                ? 'Listening…'
+                : 'Start Recording'
+          }}
         </span>
       </div>
 
@@ -69,11 +103,20 @@
       <div class="flex items-center gap-1">
         <button
           class="w-8 h-8 rounded-full border-0 flex items-center justify-center cursor-pointer transition-all duration-200 active:scale-95"
-          :class="transcriptWindowOpen 
-            ? 'bg-blue-500/15 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400' 
-            : 'bg-transparent text-black/60 dark:text-white/70 hover:bg-black/8 dark:hover:bg-white/10 hover:text-black/80 dark:hover:text-white/90'"
-          @click="console.log('📋 Transcript button clicked'), $emit('show-transcript')"
-          :title="transcriptWindowOpen ? 'Close Transcript (⌘T)' : 'Open Transcript (⌘T)'"
+          :class="
+            transcriptWindowOpen
+              ? 'bg-blue-500/15 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400'
+              : 'bg-transparent text-black/60 dark:text-white/70 hover:bg-black/8 dark:hover:bg-white/10 hover:text-black/80 dark:hover:text-white/90'
+          "
+          @click="
+            (console.log('📋 Transcript button clicked'),
+            $emit('show-transcript'))
+          "
+          :title="
+            transcriptWindowOpen
+              ? 'Close Transcript (⌘T)'
+              : 'Open Transcript (⌘T)'
+          "
         >
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
             <path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z" />
@@ -81,11 +124,17 @@
         </button>
         <button
           class="w-8 h-8 rounded-full border-0 flex items-center justify-center cursor-pointer transition-all duration-200 active:scale-95"
-          :class="archiveWindowOpen 
-            ? 'bg-green-500/15 dark:bg-green-500/20 text-green-600 dark:text-green-400' 
-            : 'bg-transparent text-black/60 dark:text-white/70 hover:bg-black/8 dark:hover:bg-white/10 hover:text-black/80 dark:hover:text-white/90'"
-          @click="console.log('📚 Archive button clicked'), $emit('show-archive')"
-          :title="archiveWindowOpen ? 'Close Archive (⌘Y)' : 'Open Archive (⌘Y)'"
+          :class="
+            archiveWindowOpen
+              ? 'bg-green-500/15 dark:bg-green-500/20 text-green-600 dark:text-green-400'
+              : 'bg-transparent text-black/60 dark:text-white/70 hover:bg-black/8 dark:hover:bg-white/10 hover:text-black/80 dark:hover:text-white/90'
+          "
+          @click="
+            (console.log('📚 Archive button clicked'), $emit('show-archive'))
+          "
+          :title="
+            archiveWindowOpen ? 'Close Archive (⌘Y)' : 'Open Archive (⌘Y)'
+          "
         >
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
             <path
@@ -110,11 +159,11 @@
 </template>
 
 <script>
-import { computed } from "vue";
-import WaveformVisualization from "./WaveformVisualization.vue";
+import { computed } from 'vue'
+import WaveformVisualization from './WaveformVisualization.vue'
 
 export default {
-  name: "CapsuleBar",
+  name: 'CapsuleBar',
   components: {
     WaveformVisualization,
   },
@@ -133,7 +182,7 @@ export default {
     },
     currentText: {
       type: String,
-      default: "",
+      default: '',
     },
     isDarkMode: {
       type: Boolean,
@@ -153,38 +202,38 @@ export default {
     },
   },
   emits: [
-    "toggle-recording",
-    "show-transcript",
-    "show-archive",
-    "minimize",
-    "close",
+    'toggle-recording',
+    'show-transcript',
+    'show-archive',
+    'minimize',
+    'close',
   ],
   setup(props) {
     const formattedTime = computed(() => {
       const minutes = Math.floor(props.elapsedTime / 60)
         .toString()
-        .padStart(2, "0");
-      const seconds = (props.elapsedTime % 60).toString().padStart(2, "0");
-      return `${minutes}:${seconds}`;
-    });
+        .padStart(2, '0')
+      const seconds = (props.elapsedTime % 60).toString().padStart(2, '0')
+      return `${minutes}:${seconds}`
+    })
 
     const toggleMicrophone = () => {
       if (window.electronAPI) {
         window.electronAPI.sendToBackend({
-          type: "toggle_source",
-        });
+          type: 'toggle_source',
+        })
       } else {
-        console.log("Toggle microphone (browser mode)");
+        console.log('Toggle microphone (browser mode)')
       }
-    };
+    }
 
     return {
       formattedTime,
       toggleMicrophone,
       isDarkMode: props.isDarkMode,
-    };
+    }
   },
-};
+}
 </script>
 
 <style scoped>

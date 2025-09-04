@@ -1,4 +1,12 @@
-import { app, BrowserWindow, ipcMain, globalShortcut, Menu, Tray, screen } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  globalShortcut,
+  Menu,
+  Tray,
+  screen,
+} from 'electron'
 import path from 'path'
 import Store from 'electron-store'
 import { spawn } from 'child_process'
@@ -27,28 +35,28 @@ let globalAppState = {
   isListening: false,
   currentSessionId: null,
   elapsedTime: 0,
-  
+
   // Transcription content
   displayText: '',
   sessionTranscript: '',
   partialText: '',
   isFinal: false,
-  
+
   // Backend connection
   isConnected: false,
-  
+
   // Audio settings
   audioSource: 'microphone',
-  
+
   // UI state
   waveformData: new Array(20).fill(0),
-  
+
   // Session management
   currentSession: null,
-  
+
   // Statistics
   wordCount: 0,
-  charCount: 0
+  charCount: 0,
 }
 
 const isDev = !app.isPackaged
@@ -61,19 +69,20 @@ function updateAppState(updates) {
       globalAppState[key] = updates[key]
     }
   })
-  
+
   // Calculate derived values
   const text = globalAppState.sessionTranscript || globalAppState.displayText
   globalAppState.wordCount = text ? text.trim().split(/\s+/).length : 0
   globalAppState.charCount = text ? text.length : 0
-  
+
   // Broadcast to all windows
   broadcastStateToAllWindows()
-  
 }
 
 function broadcastStateToAllWindows() {
-  const windows = [mainWindow, transcriptWindow, archiveWindow].filter(w => w && !w.isDestroyed())
+  const windows = [mainWindow, transcriptWindow, archiveWindow].filter(
+    w => w && !w.isDestroyed()
+  )
   windows.forEach(window => {
     try {
       window.webContents.send('app-state-changed', globalAppState)
@@ -85,73 +94,74 @@ function broadcastStateToAllWindows() {
 
 // Backend Message Handler - Updates global state from backend messages
 function handleBackendMessage(message) {
-  
   switch (message.type) {
     case 'connection_status':
       updateAppState({ isConnected: message.connected })
       break
-      
+
     case 'recording_started':
-      updateAppState({ 
+      updateAppState({
         isRecording: true,
         currentSessionId: message.session_id,
         elapsedTime: 0,
         displayText: '',
         sessionTranscript: '',
         partialText: '',
-        isFinal: false
+        isFinal: false,
       })
       break
-      
+
     case 'recording_stopped':
-      updateAppState({ 
+      updateAppState({
         isRecording: false,
-        currentSessionId: null
+        currentSessionId: null,
       })
       break
-      
+
     case 'partial_transcript':
       updateAppState({
         partialText: message.text,
         displayText: message.text,
-        isFinal: false
+        isFinal: false,
       })
       break
-      
+
     case 'final_transcript':
       const currentTranscript = globalAppState.sessionTranscript
-      const newTranscript = currentTranscript ? 
-        currentTranscript + ' ' + message.text : 
-        message.text
-      
+      const newTranscript = currentTranscript
+        ? currentTranscript + ' ' + message.text
+        : message.text
+
       updateAppState({
         sessionTranscript: newTranscript,
         displayText: newTranscript,
         partialText: message.text,
-        isFinal: true
+        isFinal: true,
       })
       break
-      
+
     case 'backend_status':
       updateAppState({
         isRecording: message.is_recording,
         currentSessionId: message.current_session_id,
         audioSource: message.audio_source,
         sessionTranscript: message.current_transcript || '',
-        displayText: message.current_transcript || ''
+        displayText: message.current_transcript || '',
       })
       break
-      
+
     case 'waveform_data':
       updateAppState({
-        waveformData: message.data || new Array(20).fill(0)
+        waveformData: message.data || new Array(20).fill(0),
       })
       break
-      
+
     default:
       // For other messages (like sessions_list, etc.), still forward to individual windows
       // This maintains compatibility for non-state messages
-      const windows = [mainWindow, transcriptWindow, archiveWindow].filter(w => w && !w.isDestroyed())
+      const windows = [mainWindow, transcriptWindow, archiveWindow].filter(
+        w => w && !w.isDestroyed()
+      )
       windows.forEach(window => {
         try {
           window.webContents.send('backend-message', message)
@@ -169,37 +179,39 @@ function startBackendProcess() {
     console.log('Development mode: Backend process handled by npm script')
     return
   }
-  
+
   const pythonPath = path.join(process.resourcesPath, 'backend', 'main.py')
   const args = []
-  
+
   backendProcess = spawn(pythonPath, args, {
-    cwd: isDev ? path.join(__dirname, '../../backend') : path.join(process.resourcesPath, 'backend'),
-    detached: false
+    cwd: isDev
+      ? path.join(__dirname, '../../backend')
+      : path.join(process.resourcesPath, 'backend'),
+    detached: false,
   })
 
-  backendProcess.stdout.on('data', (data) => {
+  backendProcess.stdout.on('data', data => {
     console.log(`Backend stdout: ${data}`)
   })
 
-  backendProcess.stderr.on('data', (data) => {
+  backendProcess.stderr.on('data', data => {
     console.error(`Backend stderr: ${data}`)
   })
 
-  backendProcess.on('close', (code) => {
+  backendProcess.on('close', code => {
     console.log(`Backend process exited with code ${code}`)
   })
 }
 
 function createWindow() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
-  
-  // Get saved position or default to center-top  
+
+  // Get saved position or default to center-top
   const savedBounds = store.get('windowBounds', {
     x: Math.round((width - 420) / 2),
     y: 80,
     width: 420,
-    height: 48
+    height: 48,
   })
 
   mainWindow = new BrowserWindow({
@@ -221,18 +233,21 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
-      backgroundThrottling: false
-    }
+      backgroundThrottling: false,
+    },
   })
 
   async function loadRenderer() {
     if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
       // Development: Load from Vite dev server with retry logic
-      console.log('Attempting to load from Vite dev server:', process.env.ELECTRON_RENDERER_URL)
-      
+      console.log(
+        'Attempting to load from Vite dev server:',
+        process.env.ELECTRON_RENDERER_URL
+      )
+
       let attempts = 0
       const maxAttempts = 10
-      
+
       while (attempts < maxAttempts) {
         try {
           await mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -241,15 +256,17 @@ function createWindow() {
           return
         } catch (error) {
           attempts++
-          console.log(`Attempt ${attempts}/${maxAttempts} failed, retrying in 1 second...`)
+          console.log(
+            `Attempt ${attempts}/${maxAttempts} failed, retrying in 1 second...`
+          )
           await new Promise(resolve => setTimeout(resolve, 1000))
         }
       }
-      
+
       console.log('Failed to load from Vite dev server, falling back to file')
       // Fallback to file loading
     }
-    
+
     if (!app.isPackaged) {
       // Development fallback: Load local HTML file
       const htmlPath = path.resolve(__dirname, '../../index.html')
@@ -264,7 +281,7 @@ function createWindow() {
       mainWindow.loadFile(htmlPath)
     }
   }
-  
+
   loadRenderer()
 
   mainWindow.once('ready-to-show', () => {
@@ -295,7 +312,7 @@ function createTranscriptWindow() {
   }
 
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
-  
+
   transcriptWindow = new BrowserWindow({
     width: 600,
     height: 500,
@@ -316,8 +333,8 @@ function createTranscriptWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
-      backgroundThrottling: false
-    }
+      backgroundThrottling: false,
+    },
   })
 
   // Load dedicated transcript window content
@@ -355,7 +372,7 @@ function createArchiveWindow() {
   }
 
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
-  
+
   archiveWindow = new BrowserWindow({
     width: 700,
     height: 600,
@@ -376,8 +393,8 @@ function createArchiveWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
-      backgroundThrottling: false
-    }
+      backgroundThrottling: false,
+    },
   })
 
   // Load dedicated archive window content
@@ -416,23 +433,23 @@ function saveWindowBounds() {
 }
 
 function setupWebSocketConnection() {
-  // Connect to backend WebSocket  
+  // Connect to backend WebSocket
   wsConnection = new WebSocket('ws://127.0.0.1:8888/ws')
-  
+
   wsConnection.on('open', () => {
     console.log('✅ Connected to backend WebSocket at ws://127.0.0.1:8888/ws')
     // Update global state instead of sending individual messages
     updateAppState({ isConnected: true })
   })
 
-  wsConnection.on('message', (data) => {
+  wsConnection.on('message', data => {
     const message = JSON.parse(data.toString())
-    
+
     // Update global state based on backend messages
     handleBackendMessage(message)
   })
 
-  wsConnection.on('error', (error) => {
+  wsConnection.on('error', error => {
     console.error('❌ WebSocket error:', error)
     console.log('Is backend running? Run: cd backend && python main.py')
     updateAppState({ isConnected: false })
@@ -451,11 +468,11 @@ function createTray() {
     // Try multiple possible paths for the tray icon
     const possiblePaths = [
       path.join(__dirname, '../assets/tray-icon.png'),
-      path.join(__dirname, '../../assets/tray-icon.png'), 
+      path.join(__dirname, '../../assets/tray-icon.png'),
       path.join(__dirname, '../src/assets/tray-icon.png'),
-      path.join(process.cwd(), 'src/assets/tray-icon.png')
+      path.join(process.cwd(), 'src/assets/tray-icon.png'),
     ]
-    
+
     let iconPath = null
     for (const testPath of possiblePaths) {
       if (fs.existsSync(testPath)) {
@@ -464,63 +481,62 @@ function createTray() {
         break
       }
     }
-    
+
     if (!iconPath) {
       console.log('⚠️ Tray icon not found in any expected location')
       console.log('Searched paths:', possiblePaths)
       console.log('ℹ️ Skipping tray creation')
       return
     }
-    
+
     tray = new Tray(iconPath)
-    
+
     const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'Show EchoTap',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show()
-        }
-      }
-    },
-    {
-      label: 'Start Recording',
-      click: () => {
-        if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-          wsConnection.send(JSON.stringify({ type: 'start_recording' }))
-        }
-      }
-    },
-    {
-      label: 'Stop Recording', 
-      click: () => {
-        if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-          wsConnection.send(JSON.stringify({ type: 'stop_recording' }))
-        }
-      }
-    },
-    { type: 'separator' },
-    {
-      label: 'Preferences',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.webContents.send('show-preferences')
-        }
-      }
-    },
-    {
-      label: 'Quit EchoTap',
-      click: () => {
-        app.quit()
-      }
-    }
-  ])
-  
+      {
+        label: 'Show EchoTap',
+        click: () => {
+          if (mainWindow) {
+            mainWindow.show()
+          }
+        },
+      },
+      {
+        label: 'Start Recording',
+        click: () => {
+          if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+            wsConnection.send(JSON.stringify({ type: 'start_recording' }))
+          }
+        },
+      },
+      {
+        label: 'Stop Recording',
+        click: () => {
+          if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+            wsConnection.send(JSON.stringify({ type: 'stop_recording' }))
+          }
+        },
+      },
+      { type: 'separator' },
+      {
+        label: 'Preferences',
+        click: () => {
+          if (mainWindow) {
+            mainWindow.webContents.send('show-preferences')
+          }
+        },
+      },
+      {
+        label: 'Quit EchoTap',
+        click: () => {
+          app.quit()
+        },
+      },
+    ])
+
     tray.setContextMenu(contextMenu)
     tray.setToolTip('EchoTap - Local Transcription')
-    
+
     console.log('✅ System tray created successfully')
-    
   } catch (error) {
     console.error('❌ Failed to create system tray:', error.message)
     console.log('ℹ️ App will continue without system tray')
@@ -532,7 +548,7 @@ function registerGlobalShortcuts() {
   const shortcuts = store.get('shortcuts', {
     startStop: 'Alt+Shift+S',
     copy: 'Alt+Shift+C',
-    toggleOverlay: 'Alt+Shift+O'
+    toggleOverlay: 'Alt+Shift+O',
   })
 
   try {
@@ -582,7 +598,7 @@ app.on('window-all-closed', async () => {
 // Robust cleanup function
 async function cleanupBackend() {
   console.log('🧹 Starting cleanup process...')
-  
+
   try {
     // Close WebSocket connection first with timeout
     if (wsConnection) {
@@ -596,66 +612,65 @@ async function cleanupBackend() {
       }
       wsConnection = null
     }
-    
+
     // Kill backend process if we spawned it
     if (backendProcess && !isDev) {
       console.log('🛑 Terminating backend process...')
-      
+
       try {
         // Try graceful shutdown first
         if (!backendProcess.killed) {
           backendProcess.kill('SIGTERM')
           console.log('📡 Sent SIGTERM, waiting for graceful shutdown...')
         }
-        
+
         // Wait for graceful shutdown
         await new Promise(resolve => setTimeout(resolve, 3000))
-        
+
         // Force kill if still running
         if (!backendProcess.killed) {
           console.log('💥 Force killing backend process...')
           backendProcess.kill('SIGKILL')
           await new Promise(resolve => setTimeout(resolve, 1000))
         }
-        
       } catch (error) {
         console.log('⚠️ Error killing backend process:', error.message)
       }
-      
+
       backendProcess = null
     }
-    
+
     // Kill any remaining Python processes (Windows/WSL compatible)
     console.log('🔍 Cleaning up any remaining Python processes...')
     const { spawn } = await import('child_process')
-    
+
     const cleanupPromises = []
-    
+
     try {
       if (process.platform === 'win32') {
         // Windows - kill all python.exe processes
         cleanupPromises.push(
-          new Promise((resolve) => {
-            const proc = spawn('taskkill', ['/f', '/im', 'python.exe'], { 
+          new Promise(resolve => {
+            const proc = spawn('taskkill', ['/f', '/im', 'python.exe'], {
               stdio: 'ignore',
-              timeout: 5000
+              timeout: 5000,
             })
             proc.on('close', resolve)
             proc.on('error', resolve)
           })
         )
-        
+
         // Also try to kill specific main.py processes
         cleanupPromises.push(
-          new Promise((resolve) => {
-            const proc = spawn('wmic', [
-              'process', 'where', 
-              'CommandLine like "%main.py%"', 
-              'delete'
-            ], { 
-              stdio: 'ignore',
-              timeout: 5000
-            })
+          new Promise(resolve => {
+            const proc = spawn(
+              'wmic',
+              ['process', 'where', 'CommandLine like "%main.py%"', 'delete'],
+              {
+                stdio: 'ignore',
+                timeout: 5000,
+              }
+            )
             proc.on('close', resolve)
             proc.on('error', resolve)
           })
@@ -663,50 +678,49 @@ async function cleanupBackend() {
       } else {
         // WSL/Linux - kill python processes by name and command line
         cleanupPromises.push(
-          new Promise((resolve) => {
-            const proc = spawn('pkill', ['-f', 'main.py'], { 
+          new Promise(resolve => {
+            const proc = spawn('pkill', ['-f', 'main.py'], {
               stdio: 'ignore',
-              timeout: 5000
+              timeout: 5000,
             })
             proc.on('close', resolve)
             proc.on('error', resolve)
           })
         )
-        
+
         cleanupPromises.push(
-          new Promise((resolve) => {
-            const proc = spawn('pkill', ['-f', 'python.*main'], { 
+          new Promise(resolve => {
+            const proc = spawn('pkill', ['-f', 'python.*main'], {
               stdio: 'ignore',
-              timeout: 5000
+              timeout: 5000,
             })
             proc.on('close', resolve)
             proc.on('error', resolve)
           })
         )
       }
-      
+
       // Wait for all cleanup processes to complete (with timeout)
       await Promise.race([
         Promise.all(cleanupPromises),
-        new Promise(resolve => setTimeout(resolve, 8000)) // 8 second max timeout
+        new Promise(resolve => setTimeout(resolve, 8000)), // 8 second max timeout
       ])
-      
     } catch (error) {
       console.log('⚠️ Could not cleanup background processes:', error.message)
     }
-    
+
     // Final verification - check if any processes are still running
     try {
       console.log('🔍 Final verification of process cleanup...')
       if (process.platform === 'win32') {
-        const proc = spawn('tasklist', ['/fi', 'ImageName eq python.exe'], { 
+        const proc = spawn('tasklist', ['/fi', 'ImageName eq python.exe'], {
           stdio: 'pipe',
-          timeout: 3000
+          timeout: 3000,
         })
         let output = ''
-        proc.stdout.on('data', (data) => output += data.toString())
+        proc.stdout.on('data', data => (output += data.toString()))
         await new Promise(resolve => proc.on('close', resolve))
-        
+
         if (output.includes('python.exe')) {
           console.log('⚠️ Some python processes may still be running')
         } else {
@@ -716,9 +730,8 @@ async function cleanupBackend() {
     } catch (error) {
       console.log('⚠️ Could not verify process cleanup:', error.message)
     }
-    
+
     console.log('✅ Comprehensive cleanup completed')
-    
   } catch (error) {
     console.error('❌ Error during cleanup:', error)
     // Even if cleanup fails, we should continue with app termination
@@ -728,23 +741,23 @@ async function cleanupBackend() {
 // Enhanced cleanup with multiple exit handlers
 let isQuitting = false
 
-app.on('before-quit', async (event) => {
+app.on('before-quit', async event => {
   if (isQuitting) return
-  
+
   // Prevent immediate quit to allow cleanup
   event.preventDefault()
   isQuitting = true
-  
+
   console.log('🔄 App shutting down, starting cleanup...')
-  
+
   // Clean up
   globalShortcut.unregisterAll()
-  
+
   // Run comprehensive cleanup
   await cleanupBackend()
-  
+
   console.log('✅ Cleanup completed, exiting app')
-  
+
   // Now actually quit
   app.exit(0)
 })
@@ -778,7 +791,7 @@ process.on('SIGTERM', async () => {
 })
 
 // Handle unexpected exits
-process.on('uncaughtException', async (error) => {
+process.on('uncaughtException', async error => {
   console.error('💥 Uncaught exception:', error)
   if (!isQuitting) {
     isQuitting = true
@@ -863,4 +876,3 @@ ipcMain.handle('close-archive', () => {
     archiveWindow.close()
   }
 })
-

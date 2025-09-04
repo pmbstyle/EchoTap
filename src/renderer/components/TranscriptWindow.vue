@@ -22,7 +22,7 @@
             "
           ></div>
           <span class="text-base font-semibold text-gray-900 dark:text-white">
-            {{ isRecording ? "Live Transcript" : "Transcript" }}
+            {{ isRecording ? 'Live Transcript' : 'Transcript' }}
           </span>
         </div>
         <div class="flex gap-2" style="-webkit-app-region: no-drag">
@@ -54,7 +54,6 @@
 
       <!-- Content -->
       <div class="flex-1 flex flex-col overflow-hidden relative">
-        
         <div
           v-if="!currentText && !isRecording"
           class="flex flex-col items-center justify-center h-full p-5 text-center"
@@ -99,8 +98,9 @@
             class="flex-1 text-base leading-relaxed text-gray-900 dark:text-white whitespace-pre-wrap break-words overflow-y-auto pr-2 relative"
             ref="transcriptText"
           >
-            {{ currentText || 'Start speaking...' }}<span 
-              v-if="isRecording && currentText" 
+            {{ currentText || 'Start speaking...'
+            }}<span
+              v-if="isRecording && currentText"
               class="inline-block w-0.5 h-5 bg-red-500 animate-pulse ml-0.5 align-bottom"
             ></span>
           </div>
@@ -131,17 +131,17 @@
 </template>
 
 <script>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
-import { useTranscriptionStore } from "../stores/transcription";
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { useTranscriptionStore } from '../stores/transcription'
 
 export default {
-  name: "TranscriptWindow",
-  emits: ["close"],
+  name: 'TranscriptWindow',
+  emits: ['close'],
   setup(props, { emit }) {
     // Use global transcription store instead of props
-    const transcriptionStore = useTranscriptionStore();
-    const transcriptText = ref(null);
-    const sessionStarted = ref(false);
+    const transcriptionStore = useTranscriptionStore()
+    const transcriptText = ref(null)
+    const sessionStarted = ref(false)
 
     // Use computed properties from the store - prioritize sessionTranscript for full session context
     const currentText = computed(() => {
@@ -149,7 +149,7 @@ export default {
       const sessionTranscript = transcriptionStore.sessionTranscript
       const displayText = transcriptionStore.displayText
       const result = sessionTranscript || displayText
-      
+
       return result
     })
     const isRecording = computed(() => transcriptionStore.isRecording)
@@ -158,35 +158,35 @@ export default {
 
     const closeWindow = () => {
       // Check if we're in transcript mode (separate window)
-      const urlParams = new URLSearchParams(window.location.search);
-      if (urlParams.get("mode") === "transcript" && window.electronAPI) {
-        window.electronAPI.closeTranscript();
+      const urlParams = new URLSearchParams(window.location.search)
+      if (urlParams.get('mode') === 'transcript' && window.electronAPI) {
+        window.electronAPI.closeTranscript()
       } else {
-        emit("close");
+        emit('close')
       }
-    };
+    }
 
     const copyTranscript = async () => {
       if (currentText.value) {
         try {
-          await navigator.clipboard.writeText(currentText.value);
+          await navigator.clipboard.writeText(currentText.value)
         } catch (error) {
-          console.warn("Failed to copy transcript:", error);
+          console.warn('Failed to copy transcript:', error)
         }
       }
-    };
+    }
 
     // Handle recording state changes
     watch(
       () => transcriptionStore.isRecording,
       (newRecording, oldRecording) => {
         if (newRecording && !oldRecording) {
-          sessionStarted.value = true;
+          sessionStarted.value = true
         } else if (!newRecording && oldRecording) {
-          sessionStarted.value = false;
+          sessionStarted.value = false
         }
       }
-    );
+    )
 
     // Auto-scroll when text updates
     watch(
@@ -194,42 +194,38 @@ export default {
       () => {
         nextTick(() => {
           if (transcriptText.value) {
-            transcriptText.value.scrollTop = transcriptText.value.scrollHeight;
+            transcriptText.value.scrollTop = transcriptText.value.scrollHeight
           }
-        });
+        })
       }
     )
-    
+
     // Watch the computed currentText to see if it's updating
-    watch(
-      currentText,
-      (newVal, oldVal) => {
-      }
-    );
+    watch(currentText, (newVal, oldVal) => {})
 
     // Handle keyboard shortcuts
-    const handleKeydown = (event) => {
-      if (event.key === "Escape") {
-        closeWindow();
-      } else if (event.key === "c" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        copyTranscript();
+    const handleKeydown = event => {
+      if (event.key === 'Escape') {
+        closeWindow()
+      } else if (event.key === 'c' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault()
+        copyTranscript()
       }
-    };
+    }
 
     onMounted(async () => {
-      document.addEventListener("keydown", handleKeydown);
-      
+      document.addEventListener('keydown', handleKeydown)
+
       // Wait a moment for any final chunk processing to complete before querying status
       await new Promise(resolve => setTimeout(resolve, 300))
-      
+
       // Query backend status for session data
-      await transcriptionStore.queryBackendStatus();
-    });
+      await transcriptionStore.queryBackendStatus()
+    })
 
     onUnmounted(() => {
-      document.removeEventListener("keydown", handleKeydown);
-    });
+      document.removeEventListener('keydown', handleKeydown)
+    })
 
     return {
       // Store refs
@@ -238,16 +234,16 @@ export default {
       isRecording,
       wordCount,
       charCount,
-      
+
       // Local refs
       transcriptText,
-      
+
       // Actions
       closeWindow,
       copyTranscript,
-    };
+    }
   },
-};
+}
 </script>
 
 <style scoped>

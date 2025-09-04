@@ -1,17 +1,14 @@
 <template>
-  <div class="w-full h-full font-sans antialiased overflow-hidden bg-transparent rounded-full transition-all duration-200 p-3" :class="{ 'dark-mode': isDarkMode }">
-    <TranscriptWindow
-      v-if="isTranscriptMode"
-      @close="closeWindow"
-    />
-    
-    <ArchiveWindow
-      v-else-if="isArchiveMode"
-      @close="closeWindow"
-    />
-    
+  <div
+    class="w-full h-full font-sans antialiased overflow-hidden bg-transparent rounded-full transition-all duration-200 p-3"
+    :class="{ 'dark-mode': isDarkMode }"
+  >
+    <TranscriptWindow v-if="isTranscriptMode" @close="closeWindow" />
+
+    <ArchiveWindow v-else-if="isArchiveMode" @close="closeWindow" />
+
     <template v-else>
-      <CapsuleBar 
+      <CapsuleBar
         :is-recording="transcriptionStore.isRecording"
         :elapsed-time="transcriptionStore.elapsedTime"
         :waveform-data="transcriptionStore.waveformData"
@@ -25,7 +22,7 @@
         @minimize="minimizeWindow"
         @close="closeWindow"
       />
-      
+
       <PreferencesWindow
         v-if="showPreferences"
         @close="showPreferences = false"
@@ -54,18 +51,18 @@ export default {
   setup() {
     const appStore = useAppStore()
     const transcriptionStore = useTranscriptionStore()
-    
+
     const isTranscriptMode = ref(false)
     const isArchiveMode = ref(false)
-    
+
     const showArchive = ref(false)
     const showPreferences = ref(false)
     const showTranscript = ref(false)
     const isDarkMode = ref(true)
-    
+
     const transcriptWindowOpen = ref(false)
     const archiveWindowOpen = ref(false)
-    
+
     let recordingStartTime = 0
     let timerInterval = null
 
@@ -95,7 +92,7 @@ export default {
       } else if (message.type === 'recording_stopped') {
         stopTimer()
       }
-      
+
       transcriptionStore.handleBackendMessage(message)
     }
 
@@ -113,7 +110,10 @@ export default {
     )
 
     const handleToggleRecording = async () => {
-      console.log('🎤 Toggle recording clicked, current state:', transcriptionStore.isRecording)
+      console.log(
+        '🎤 Toggle recording clicked, current state:',
+        transcriptionStore.isRecording
+      )
       await transcriptionStore.toggleRecording()
     }
 
@@ -135,7 +135,10 @@ export default {
     }
 
     const handleShowTranscript = () => {
-      console.log('📋 Show transcript clicked, current window state:', transcriptWindowOpen.value)
+      console.log(
+        '📋 Show transcript clicked, current window state:',
+        transcriptWindowOpen.value
+      )
       if (window.electronAPI) {
         if (transcriptWindowOpen.value) {
           window.electronAPI.closeTranscript()
@@ -179,14 +182,14 @@ export default {
       if (window.electronAPI) {
         try {
           window.electronAPI.onBackendMessage(handleBackendMessage)
-          
+
           if (!isTranscriptMode.value && !isArchiveMode.value) {
             window.electronAPI.onShowPreferences(() => {
               showPreferences.value = true
             })
             window.electronAPI.onCopyTranscript(handleCopyTranscript)
             window.electronAPI.onToggleOverlay(handleToggleOverlay)
-            
+
             window.electronAPI.onTranscriptWindowClosed(() => {
               transcriptWindowOpen.value = false
               console.log('📋 Transcript window closed')
@@ -198,9 +201,13 @@ export default {
           }
 
           const theme = await window.electronAPI.getStoreValue('theme')
-          isDarkMode.value = (theme === null || theme === undefined || theme !== 'light')
+          isDarkMode.value =
+            theme === null || theme === undefined || theme !== 'light'
 
-          document.documentElement.classList.toggle('dark-mode', isDarkMode.value)
+          document.documentElement.classList.toggle(
+            'dark-mode',
+            isDarkMode.value
+          )
           console.log('Theme loaded:', theme, 'Dark mode:', isDarkMode.value)
         } catch (error) {
           console.warn('Failed to initialize Electron APIs:', error)
@@ -224,7 +231,7 @@ export default {
           console.warn('Error cleaning up Electron listeners:', error)
         }
       }
-      
+
       stopTimer()
       transcriptionStore.cleanup()
     })
@@ -241,9 +248,9 @@ export default {
       handleShowTranscript,
       handleShowArchive,
       minimizeWindow,
-      closeWindow
+      closeWindow,
     }
-  }
+  },
 }
 </script>
 

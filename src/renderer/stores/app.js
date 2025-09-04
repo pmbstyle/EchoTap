@@ -21,15 +21,17 @@ export const useAppStore = defineStore('app', () => {
     shortcuts: {
       startStop: 'Alt+Shift+S',
       copy: 'Alt+Shift+C',
-      toggleOverlay: 'Alt+Shift+O'
+      toggleOverlay: 'Alt+Shift+O',
     },
     checkForUpdates: false,
-    telemetry: false
+    telemetry: false,
   })
 
   // Computed
   const formattedTime = computed(() => {
-    const minutes = Math.floor(elapsedTime.value / 60).toString().padStart(2, '0')
+    const minutes = Math.floor(elapsedTime.value / 60)
+      .toString()
+      .padStart(2, '0')
     const seconds = (elapsedTime.value % 60).toString().padStart(2, '0')
     return `${minutes}:${seconds}`
   })
@@ -42,27 +44,27 @@ export const useAppStore = defineStore('app', () => {
   })
 
   // Actions
-  const updateRecordingState = (recording) => {
+  const updateRecordingState = recording => {
     isRecording.value = recording
   }
 
-  const updateCurrentText = (text) => {
+  const updateCurrentText = text => {
     currentText.value = text
   }
 
-  const updateElapsedTime = (time) => {
+  const updateElapsedTime = time => {
     elapsedTime.value = time
   }
 
-  const updateWaveformData = (data) => {
+  const updateWaveformData = data => {
     waveformData.value = data
   }
 
-  const updateAudioSource = (source) => {
+  const updateAudioSource = source => {
     audioSource.value = source
   }
 
-  const updatePreferences = (newPreferences) => {
+  const updatePreferences = newPreferences => {
     preferences.value = { ...preferences.value, ...newPreferences }
   }
 
@@ -76,7 +78,7 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  const addSession = (session) => {
+  const addSession = session => {
     sessions.value.unshift(session)
   }
 
@@ -84,11 +86,12 @@ export const useAppStore = defineStore('app', () => {
   const initialize = async () => {
     try {
       // Load preferences from electron store
-      const savedPreferences = await window.electronAPI?.getStoreValue('preferences')
+      const savedPreferences =
+        await window.electronAPI?.getStoreValue('preferences')
       if (savedPreferences) {
         updatePreferences(savedPreferences)
       }
-      
+
       // Load sessions
       await loadSessions()
     } catch (error) {
@@ -105,11 +108,11 @@ export const useAppStore = defineStore('app', () => {
     waveformData,
     sessions,
     preferences,
-    
+
     // Computed
     formattedTime,
     isDarkMode,
-    
+
     // Actions
     updateRecordingState,
     updateCurrentText,
@@ -119,6 +122,6 @@ export const useAppStore = defineStore('app', () => {
     updatePreferences,
     loadSessions,
     addSession,
-    initialize
+    initialize,
   }
 })

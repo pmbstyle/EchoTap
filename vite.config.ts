@@ -10,11 +10,11 @@ export default defineConfig({
     outDir: 'dist/renderer',
     rollupOptions: {
       input: {
-        main: resolve(__dirname, 'index.html')
-      }
-    }
+        main: resolve(__dirname, 'index.html'),
+      },
+    },
   },
   server: {
-    port: 5173
-  }
+    port: 5173,
+  },
 })

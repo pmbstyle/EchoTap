@@ -4,7 +4,7 @@ export function useTypingEffect() {
   const displayedText = ref('')
   const isTyping = ref(false)
   const typingSpeed = ref(25) // milliseconds per character
-  
+
   let currentTargetText = ''
   let typingTimer = null
   let currentPosition = 0
@@ -16,7 +16,7 @@ export function useTypingEffect() {
       appendText(newText, speed)
       return
     }
-    
+
     // Otherwise, clear and type the new text
     stopTyping()
     currentTargetText = targetText
@@ -24,19 +24,19 @@ export function useTypingEffect() {
     typingSpeed.value = speed
     isTyping.value = true
     displayedText.value = ''
-    
+
     typeNextCharacter()
   }
 
   const appendText = (newText, speed = 25) => {
     if (!newText) return
-    
+
     stopTyping()
     currentTargetText = displayedText.value + newText
     currentPosition = displayedText.value.length
     typingSpeed.value = speed
     isTyping.value = true
-    
+
     typeNextCharacter()
   }
 
@@ -52,7 +52,7 @@ export function useTypingEffect() {
     // Vary typing speed slightly for more natural feel
     const variation = Math.random() * 10 - 5 // ±5ms variation
     const nextSpeed = Math.max(5, typingSpeed.value + variation)
-    
+
     typingTimer = setTimeout(typeNextCharacter, nextSpeed)
   }
 
@@ -64,7 +64,7 @@ export function useTypingEffect() {
     isTyping.value = false
   }
 
-  const instantText = (text) => {
+  const instantText = text => {
     stopTyping()
     displayedText.value = text
     currentTargetText = text
@@ -85,6 +85,6 @@ export function useTypingEffect() {
     appendText,
     stopTyping,
     instantText,
-    clearText
+    clearText,
   }
 }

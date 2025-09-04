@@ -18,7 +18,8 @@
     "start": "electron .",
     "test": "vitest",
     "install:backend": "cd backend && pip install -r requirements.txt",
-    "setup": "npm install && npm run install:backend"
+    "setup": "npm install && npm run install:backend",
+    "format": "prettier --write ."
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.12",
@@ -45,6 +46,7 @@
     "electron-store": "^8.1.0",
     "fuse.js": "^6.6.2",
     "pinia": "^2.1.6",
+    "prettier": "^3.6.2",
     "vue": "^3.3.4",
     "ws": "^8.13.0"
   },

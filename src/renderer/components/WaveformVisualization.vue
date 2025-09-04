@@ -1,6 +1,9 @@
 <template>
-  <div class="w-full h-full flex items-center justify-center" ref="waveformContainer">
-    <canvas 
+  <div
+    class="w-full h-full flex items-center justify-center"
+    ref="waveformContainer"
+  >
+    <canvas
       ref="canvas"
       :width="canvasWidth"
       :height="canvasHeight"
@@ -17,31 +20,31 @@ export default {
   props: {
     data: {
       type: Array,
-      default: () => []
+      default: () => [],
     },
     isRecording: {
       type: Boolean,
-      default: false
+      default: false,
     },
     maxBars: {
       type: Number,
-      default: 30
+      default: 30,
     },
     minHeight: {
       type: Number,
-      default: 2
+      default: 2,
     },
     maxHeight: {
       type: Number,
-      default: 16
-    }
+      default: 16,
+    },
   },
   setup(props) {
     const waveformContainer = ref(null)
     const canvas = ref(null)
     const canvasWidth = ref(120)
     const canvasHeight = ref(20)
-    
+
     let animationId = null
     let bars = []
     let targetBars = []
@@ -49,11 +52,13 @@ export default {
 
     // Initialize with random static bars for idle state
     const initializeBars = () => {
-      bars = Array(props.maxBars).fill().map(() => ({
-        height: props.minHeight + Math.random() * 2,
-        targetHeight: props.minHeight,
-        velocity: 0
-      }))
+      bars = Array(props.maxBars)
+        .fill()
+        .map(() => ({
+          height: props.minHeight + Math.random() * 2,
+          targetHeight: props.minHeight,
+          velocity: 0,
+        }))
       targetBars = [...bars]
       audioHistory = Array(props.maxBars).fill(0.05) // Initialize history
     }
@@ -68,7 +73,7 @@ export default {
       // Get colors based on theme and recording state
       const isDark = document.documentElement.classList.contains('dark-mode')
       let barColor
-      
+
       if (props.isRecording) {
         barColor = isDark ? '#FF453A' : '#FF3B30'
       } else {
@@ -78,7 +83,8 @@ export default {
       const barWidth = 2
       const barSpacing = 1
       const totalBarWidth = barWidth + barSpacing
-      const startX = (canvasWidth.value - (props.maxBars * totalBarWidth - barSpacing)) / 2
+      const startX =
+        (canvasWidth.value - (props.maxBars * totalBarWidth - barSpacing)) / 2
 
       // Update and draw bars
       bars.forEach((bar, index) => {
@@ -115,33 +121,40 @@ export default {
     const updateBars = () => {
       if (props.isRecording && props.data && props.data.length > 0) {
         // Get the latest audio data point (or average if multiple)
-        const latestAmplitude = props.data.length > 0 ? 
-          props.data.reduce((sum, val) => sum + val, 0) / props.data.length : 0.05
-        
+        const latestAmplitude =
+          props.data.length > 0
+            ? props.data.reduce((sum, val) => sum + val, 0) / props.data.length
+            : 0.05
+
         // Shift history left and add new data on the right
         audioHistory.shift() // Remove leftmost (oldest)
         audioHistory.push(latestAmplitude) // Add rightmost (newest)
-        
+
         // Create target heights from history (newest data appears on right)
         targetBars = audioHistory.map(amplitude => ({
-          targetHeight: props.minHeight + (amplitude * (props.maxHeight - props.minHeight))
+          targetHeight:
+            props.minHeight + amplitude * (props.maxHeight - props.minHeight),
         }))
       } else if (props.isRecording) {
         // Minimal animation while waiting for real data - don't compete with real data
-        targetBars = Array(props.maxBars).fill().map((_, index) => {
-          // Simple, predictable pattern that won't interfere
-          const baseHeight = props.minHeight + 2
-          const variation = Math.sin(Date.now() * 0.005 + index * 0.3) * 1
-          return {
-            targetHeight: baseHeight + Math.abs(variation)
-          }
-        })
+        targetBars = Array(props.maxBars)
+          .fill()
+          .map((_, index) => {
+            // Simple, predictable pattern that won't interfere
+            const baseHeight = props.minHeight + 2
+            const variation = Math.sin(Date.now() * 0.005 + index * 0.3) * 1
+            return {
+              targetHeight: baseHeight + Math.abs(variation),
+            }
+          })
       } else {
         // Idle state - subtle static bars and reset history
         audioHistory = Array(props.maxBars).fill(0.05)
-        targetBars = Array(props.maxBars).fill().map(() => ({
-          targetHeight: props.minHeight + Math.random() * 1.5
-        }))
+        targetBars = Array(props.maxBars)
+          .fill()
+          .map(() => ({
+            targetHeight: props.minHeight + Math.random() * 1.5,
+          }))
       }
 
       // Update target heights
@@ -195,9 +208,8 @@ export default {
       waveformContainer,
       canvas,
       canvasWidth,
-      canvasHeight
+      canvasHeight,
     }
-  }
+  },
 }
 </script>
-
