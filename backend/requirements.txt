@@ -10,16 +10,20 @@ aiosqlite>=0.19.0
 pydantic>=2.5.0
 python-multipart>=0.0.6
 
-# Platform-specific audio capture
+# Audio capture dependencies
 pyaudio>=0.2.11
+pyaudiowpatch>=0.2.12.6; sys_platform == "win32"
+
+# PyTorch for device detection (optional but recommended)
+torch>=2.0.0
 
 # Windows-specific
 pywin32>=306; sys_platform == "win32"
 comtypes>=1.1.14; sys_platform == "win32"
 
 # macOS-specific  
-pyobjc-framework-CoreAudio>=9.0; sys_platform == "darwin"
-pyobjc-framework-AudioUnit>=9.0; sys_platform == "darwin"
+pyobjc-framework-CoreAudio>=10.0; sys_platform == "darwin"
+pyobjc-framework-AudioUnit>=10.0; sys_platform == "darwin"
 
 # Linux-specific
 pulsectl>=22.3.2; sys_platform == "linux"
