@@ -5,11 +5,14 @@ import sqlite3
 import aiosqlite
 import json
 import uuid
+import logging
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 from pathlib import Path
 
 from models import SessionData, TranscriptSegment, SessionSummary, TranscriptionStats
+
+logger = logging.getLogger(__name__)
 
 class DatabaseManager:
     """Async SQLite database manager with full-text search"""
@@ -77,6 +80,24 @@ class DatabaseManager:
             )
         """)
         
+        # Session summaries table
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS session_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL UNIQUE,
+                summary TEXT NOT NULL,
+                original_length INTEGER NOT NULL,
+                summary_length INTEGER NOT NULL,
+                original_words INTEGER NOT NULL,
+                summary_words INTEGER NOT NULL,
+                compression_ratio REAL NOT NULL,
+                generation_time REAL NOT NULL,
+                model TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions (id)
+            )
+        """)
+        
         # User preferences table
         await self.db.execute("""
             CREATE TABLE IF NOT EXISTS preferences (
@@ -107,7 +128,8 @@ class DatabaseManager:
             "CREATE INDEX IF NOT EXISTS idx_sessions_source ON sessions (source)",
             "CREATE INDEX IF NOT EXISTS idx_transcript_session ON transcript_segments (session_id)",
             "CREATE INDEX IF NOT EXISTS idx_transcript_time ON transcript_segments (start_time, end_time)",
-            "CREATE INDEX IF NOT EXISTS idx_models_last_used ON downloaded_models (last_used DESC)"
+            "CREATE INDEX IF NOT EXISTS idx_models_last_used ON downloaded_models (last_used DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_summaries_session ON session_summaries (session_id)"
         ]
         
         for index_sql in indexes:
@@ -469,3 +491,112 @@ class DatabaseManager:
         minutes = int(seconds // 60)
         secs = seconds % 60
         return f"{minutes:02d}:{secs:06.3f}"
+    
+    async def save_session_summary(
+        self, 
+        session_id: str, 
+        summary_data: Dict[str, Any]
+    ) -> bool:
+        """Save a generated summary for a session"""
+        try:
+            await self.db.execute("""
+                INSERT OR REPLACE INTO session_summaries (
+                    session_id, summary, original_length, summary_length,
+                    original_words, summary_words, compression_ratio,
+                    generation_time, model, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                session_id,
+                summary_data['summary'],
+                summary_data['original_length'],
+                summary_data['summary_length'],
+                summary_data['original_words'],
+                summary_data['summary_words'],
+                summary_data['compression_ratio'],
+                summary_data['generation_time'],
+                summary_data['model'],
+                summary_data['created_at']
+            ))
+            
+            await self.db.commit()
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to save session summary: {e}")
+            await self.db.rollback()
+            return False
+    
+    async def get_session_summary(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Get the summary for a session"""
+        cursor = await self.db.execute("""
+            SELECT * FROM session_summaries WHERE session_id = ?
+        """, (session_id,))
+        
+        result = await cursor.fetchone()
+        if result:
+            return dict(result)
+        return None
+    
+    async def get_sessions_with_summaries(self, limit: int = 100, offset: int = 0) -> List[Dict]:
+        """Get list of sessions with their summaries for archive view"""
+        
+        cursor = await self.db.execute("""
+            SELECT 
+                s.id,
+                s.source,
+                s.model,
+                s.language,
+                s.created_at,
+                s.duration,
+                s.word_count,
+                s.average_confidence,
+                (
+                    SELECT text 
+                    FROM transcript_segments ts 
+                    WHERE ts.session_id = s.id 
+                    ORDER BY start_time 
+                    LIMIT 1
+                ) as first_segment,
+                (
+                    SELECT COUNT(*) 
+                    FROM transcript_segments ts 
+                    WHERE ts.session_id = s.id
+                ) as segment_count,
+                ss.summary,
+                ss.summary_words,
+                ss.compression_ratio,
+                ss.generation_time,
+                ss.model as summary_model
+            FROM sessions s
+            LEFT JOIN session_summaries ss ON s.id = ss.session_id
+            WHERE s.completed_at IS NOT NULL
+            ORDER BY s.created_at DESC
+            LIMIT ? OFFSET ?
+        """, (limit, offset))
+        
+        sessions = []
+        async for row in cursor:
+            # Create preview text
+            preview = row['first_segment'] or ""
+            if len(preview) > 100:
+                preview = preview[:97] + "..."
+                
+            sessions.append({
+                "id": row['id'],
+                "created_at": row['created_at'],
+                "source": row['source'],
+                "duration": row['duration'] or 0,
+                "model": row['model'],
+                "preview": preview,
+                "word_count": row['word_count'] or 0,
+                "segment_count": row['segment_count'] or 0,
+                "average_confidence": row['average_confidence'] or 0.0,
+                "summary": row['summary'],
+                "summary_words": row['summary_words'],
+                "compression_ratio": row['compression_ratio'],
+                "generation_time": row['generation_time'],
+                "summary_model": row['summary_model'],
+                "has_summary": row['summary'] is not None
+            })
+            
+        return sessions

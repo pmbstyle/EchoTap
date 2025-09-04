@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onShowPreferences: callback => ipcRenderer.on('show-preferences', callback),
   onCopyTranscript: callback => ipcRenderer.on('copy-transcript', callback),
   onToggleOverlay: callback => ipcRenderer.on('toggle-overlay', callback),
+  onTranscriptWindowClosed: callback => ipcRenderer.on('transcript-window-closed', callback),
+  onArchiveWindowClosed: callback => ipcRenderer.on('archive-window-closed', callback),
 
   // Remove listeners
   removeAllListeners: channel => ipcRenderer.removeAllListeners(channel),

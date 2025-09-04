@@ -25,3 +25,7 @@ comtypes>=1.1.14; sys_platform == "win32"
 
 # Linux-specific
 pulsectl>=22.3.2; sys_platform == "linux"
+
+# Summarization dependencies
+llama-cpp-python>=0.2.11
+requests>=2.31.0

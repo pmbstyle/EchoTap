@@ -85,7 +85,10 @@ function broadcastStateToAllWindows() {
   )
   windows.forEach(window => {
     try {
-      window.webContents.send('app-state-changed', globalAppState)
+      // Check webContents validity just before sending
+      if (window.webContents && !window.webContents.isDestroyed()) {
+        window.webContents.send('app-state-changed', globalAppState)
+      }
     } catch (error) {
       console.warn('Failed to send state to window:', error.message)
     }
@@ -164,7 +167,9 @@ function handleBackendMessage(message) {
       )
       windows.forEach(window => {
         try {
-          window.webContents.send('backend-message', message)
+          if (window.webContents && !window.webContents.isDestroyed()) {
+            window.webContents.send('backend-message', message)
+          }
         } catch (error) {
           console.warn('Failed to send message to window:', error.message)
         }
@@ -355,6 +360,14 @@ function createTranscriptWindow() {
   })
 
   transcriptWindow.on('closed', () => {
+    // Notify main window that transcript window was closed
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+      try {
+        mainWindow.webContents.send('transcript-window-closed')
+      } catch (error) {
+        console.warn('Failed to send transcript-window-closed event:', error.message)
+      }
+    }
     transcriptWindow = null
   })
 }
@@ -415,14 +428,26 @@ function createArchiveWindow() {
   })
 
   archiveWindow.on('closed', () => {
+    // Notify main window that archive window was closed
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+      try {
+        mainWindow.webContents.send('archive-window-closed')
+      } catch (error) {
+        console.warn('Failed to send archive-window-closed event:', error.message)
+      }
+    }
     archiveWindow = null
   })
 }
 
 // Forward messages to archive window
 function forwardMessageToArchive(message) {
-  if (archiveWindow) {
-    archiveWindow.webContents.send('backend-message', message)
+  if (archiveWindow && !archiveWindow.isDestroyed() && archiveWindow.webContents && !archiveWindow.webContents.isDestroyed()) {
+    try {
+      archiveWindow.webContents.send('backend-message', message)
+    } catch (error) {
+      console.warn('Failed to send message to archive window:', error.message)
+    }
   }
 }
 
@@ -520,8 +545,12 @@ function createTray() {
       {
         label: 'Preferences',
         click: () => {
-          if (mainWindow) {
-            mainWindow.webContents.send('show-preferences')
+          if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+            try {
+              mainWindow.webContents.send('show-preferences')
+            } catch (error) {
+              console.warn('Failed to send preferences message:', error.message)
+            }
           }
         },
       },
@@ -559,14 +588,22 @@ function registerGlobalShortcuts() {
     })
 
     globalShortcut.register(shortcuts.copy, () => {
-      if (mainWindow) {
-        mainWindow.webContents.send('copy-transcript')
+      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+        try {
+          mainWindow.webContents.send('copy-transcript')
+        } catch (error) {
+          console.warn('Failed to send copy-transcript message:', error.message)
+        }
       }
     })
 
     globalShortcut.register(shortcuts.toggleOverlay, () => {
-      if (mainWindow) {
-        mainWindow.webContents.send('toggle-overlay')
+      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+        try {
+          mainWindow.webContents.send('toggle-overlay')
+        } catch (error) {
+          console.warn('Failed to send toggle-overlay message:', error.message)
+        }
       }
     })
   } catch (error) {
@@ -819,8 +856,17 @@ ipcMain.handle('set-store-value', (event, key, value) => {
 })
 
 ipcMain.handle('send-to-backend', (event, message) => {
-  if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-    wsConnection.send(JSON.stringify(message))
+  try {
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      wsConnection.send(JSON.stringify(message))
+      return { success: true }
+    } else {
+      console.warn('WebSocket not connected, message not sent:', message.type)
+      return { success: false, error: 'WebSocket not connected' }
+    }
+  } catch (error) {
+    console.error('Error sending message to backend:', error)
+    return { success: false, error: error.message }
   }
 })
 

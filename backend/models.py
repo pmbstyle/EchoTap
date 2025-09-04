@@ -87,6 +87,29 @@ class SystemStatus(BaseModel):
     cpu_usage: Optional[float] = Field(None, description="CPU usage percentage")
     memory_usage: Optional[float] = Field(None, description="Memory usage in MB")
 
+class SessionSummaryData(BaseModel):
+    """Summary data for a transcription session"""
+    summary: str = Field(..., description="Generated summary text")
+    original_length: int = Field(..., description="Length of original transcript")
+    summary_length: int = Field(..., description="Length of summary")
+    original_words: int = Field(..., description="Word count of original transcript")
+    summary_words: int = Field(..., description="Word count of summary")
+    compression_ratio: float = Field(..., description="Compression ratio (original/summary words)")
+    generation_time: float = Field(..., description="Time taken to generate summary in seconds")
+    model: str = Field(..., description="Model used for summarization")
+    created_at: str = Field(..., description="ISO timestamp of creation")
+
+class SummaryRequest(BaseModel):
+    """Request model for generating summaries"""
+    session_id: str = Field(..., description="Session ID to summarize")
+    max_length: Optional[int] = Field(300, ge=50, le=1000, description="Maximum summary length in characters")
+
+class SummaryResponse(BaseModel):
+    """Response model for summary generation"""
+    success: bool = Field(..., description="Whether summary was generated successfully")
+    summary_data: Optional[SessionSummaryData] = Field(None, description="Summary data if successful")
+    error: Optional[str] = Field(None, description="Error message if failed")
+
 class ErrorResponse(BaseModel):
     """Error response model"""
     type: str = Field("error", description="Message type")

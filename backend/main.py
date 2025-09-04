@@ -19,12 +19,16 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # Audio capture now handled by frontend VAD
 from transcription_engine import TranscriptionEngine
+from summarization_engine import SummarizationEngine
 from database import DatabaseManager
 from models import (
     TranscriptionMessage, 
     SessionData, 
     PreferencesUpdate,
-    ModelInfo
+    ModelInfo,
+    SummaryRequest,
+    SummaryResponse,
+    SessionSummaryData
 )
 
 # Configure logging
@@ -34,6 +38,7 @@ logger = logging.getLogger(__name__)
 # Global state
 active_connections: List[WebSocket] = []
 transcription_engine: Optional[TranscriptionEngine] = None
+summarization_engine: Optional[SummarizationEngine] = None
 database: Optional[DatabaseManager] = None
 current_session_id: Optional[str] = None
 current_session_transcript = ""  # Track current session transcript for live sync
@@ -42,7 +47,7 @@ is_recording = False  # Track recording state for frontend sync
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan management"""
-    global transcription_engine, database
+    global transcription_engine, summarization_engine, database
     
     # Startup
     logger.info("Starting EchoTap backend...")
@@ -55,8 +60,11 @@ async def lifespan(app: FastAPI):
     database = DatabaseManager(str(db_path))
     await database.initialize()
     
-    # Initialize transcription engine only
+    # Initialize transcription engine
     transcription_engine = TranscriptionEngine()
+    
+    # Initialize summarization engine
+    summarization_engine = SummarizationEngine()
     
     logger.info("EchoTap backend started successfully - audio handled by frontend")
     
@@ -67,6 +75,9 @@ async def lifespan(app: FastAPI):
     
     if database:
         await database.close()
+        
+    if summarization_engine:
+        summarization_engine.cleanup()
         
     logger.info("EchoTap backend shutdown complete")
 
@@ -278,7 +289,7 @@ async def handle_websocket_message(websocket: WebSocket, message: Dict):
                 
         elif message_type == "get_sessions":
             if database:
-                sessions = await database.get_sessions()
+                sessions = await database.get_sessions_with_summaries()
                 await websocket.send_text(json.dumps({
                     "type": "sessions_list",
                     "sessions": sessions
@@ -348,6 +359,45 @@ async def handle_websocket_message(websocket: WebSocket, message: Dict):
                     )
                 )
                 
+        elif message_type == "get_session_summary":
+            session_id = message.get("session_id")
+            if database and session_id:
+                summary = await database.get_session_summary(session_id)
+                await websocket.send_text(json.dumps({
+                    "type": "session_summary",
+                    "session_id": session_id,
+                    "summary": summary
+                }))
+                
+        elif message_type == "generate_summary":
+            session_id = message.get("session_id")
+            if session_id:
+                success = await generate_session_summary(session_id)
+                await websocket.send_text(json.dumps({
+                    "type": "summary_generation_result",
+                    "session_id": session_id,
+                    "success": success
+                }))
+                
+        elif message_type == "get_summarization_status":
+            if summarization_engine:
+                model_info = summarization_engine.get_model_info()
+                await websocket.send_text(json.dumps({
+                    "type": "summarization_status",
+                    "available": model_info["is_available"],
+                    "downloaded": model_info["is_downloaded"],
+                    "loaded": model_info["is_loaded"],
+                    "model_name": model_info["model_name"]
+                }))
+                
+        elif message_type == "download_summarization_model":
+            if summarization_engine:
+                success = await summarization_engine.download_model_if_needed()
+                await websocket.send_text(json.dumps({
+                    "type": "summarization_model_download_result",
+                    "success": success
+                }))
+                
         else:
             logger.warning(f"Unknown message type: {message_type}")
             
@@ -366,6 +416,9 @@ async def handle_disconnect_cleanup():
         try:
             logger.info(f"🔄 Auto-completing session on disconnect: {current_session_id}")
             await database.complete_session(current_session_id)
+            
+            # Generate summary for the completed session
+            await generate_session_summary(current_session_id)
             
             # Reset session state
             session_id = current_session_id
@@ -399,6 +452,9 @@ async def handle_frontend_recording_stopped():
         # Complete session in database
         if database and current_session_id:
             await database.complete_session(current_session_id)
+            
+            # Generate summary for the completed session
+            await generate_session_summary(current_session_id)
         
         # Reset session ID but preserve transcript for transcription window access
         current_session_id = None
@@ -411,6 +467,53 @@ async def handle_frontend_recording_stopped():
         })
         
         logger.info(f"📴 Frontend recording stopped, session: {session_id}")
+
+async def generate_session_summary(session_id: str) -> bool:
+    """Generate summary for a completed session"""
+    global database, summarization_engine
+    
+    if not database or not summarization_engine or not summarization_engine.is_initialized:
+        logger.info("Summary generation skipped - summarization engine not available")
+        return False
+    
+    try:
+        # Get session transcript
+        transcript_data = await database.get_session_transcript(session_id)
+        if not transcript_data:
+            logger.warning(f"No transcript found for session {session_id}")
+            return False
+            
+        full_text = transcript_data.get('full_text', '')
+        if len(full_text.strip()) < 50:  # Too short to summarize
+            logger.info(f"Session {session_id} transcript too short for summarization")
+            return False
+            
+        logger.info(f"🤖 Generating summary for session {session_id} ({len(full_text)} chars)")
+        
+        # Generate summary
+        summary_result = await summarization_engine.generate_summary(full_text)
+        if not summary_result:
+            logger.warning(f"Failed to generate summary for session {session_id}")
+            return False
+            
+        # Save summary to database
+        success = await database.save_session_summary(session_id, summary_result)
+        if success:
+            logger.info(f"✅ Summary generated and saved for session {session_id}: '{summary_result['summary'][:100]}...'")
+            
+            # Broadcast summary completion to connected clients
+            await broadcast_message({
+                "type": "summary_generated",
+                "session_id": session_id,
+                "summary": summary_result['summary'],
+                "compression_ratio": summary_result['compression_ratio']
+            })
+            
+        return success
+        
+    except Exception as e:
+        logger.error(f"Error generating summary for session {session_id}: {e}")
+        return False
 
 # Recording is now handled by frontend VAD - backend only processes transcription
 

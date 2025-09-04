@@ -174,6 +174,12 @@ export default {
       }
     }
 
+    const handleToggleOverlay = () => {
+      // Toggle overlay functionality - this could be used for show/hide window states
+      // For now, this is a placeholder that prevents the initialization error
+      console.log('Toggle overlay triggered')
+    }
+
     onMounted(async () => {
       const urlParams = new URLSearchParams(window.location.search)
       isTranscriptMode.value = urlParams.get('mode') === 'transcript'
@@ -244,6 +250,8 @@ export default {
       showPreferences,
       showTranscript,
       isDarkMode,
+      transcriptWindowOpen,
+      archiveWindowOpen,
       handleToggleRecording,
       handleShowTranscript,
       handleShowArchive,

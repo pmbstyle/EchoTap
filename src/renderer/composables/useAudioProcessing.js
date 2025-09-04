@@ -7,6 +7,7 @@ export function useAudioProcessing() {
   const isVadInitializing = ref(false)
   const isListening = ref(false)
   const isSpeechDetected = ref(false)
+  const lastVadActivityTime = ref(0)
 
   // Audio processing
   const audioContext = ref(null)
@@ -427,6 +428,7 @@ export function useAudioProcessing() {
     isSpeechDetected,
     isVadInitializing,
     waveformData,
+    lastVadActivityTime,
 
     // Methods
     startRecording,

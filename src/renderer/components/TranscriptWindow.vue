@@ -53,7 +53,7 @@
       </div>
 
       <!-- Content -->
-      <div class="flex-1 flex flex-col overflow-hidden relative">
+      <div class="flex-1 flex flex-col overflow-hidden relative" style="-webkit-app-region: no-drag">
         <div
           v-if="!currentText && !isRecording"
           class="flex flex-col items-center justify-center h-full p-5 text-center"
@@ -97,6 +97,7 @@
           <div
             class="flex-1 text-base leading-relaxed text-gray-900 dark:text-white whitespace-pre-wrap break-words overflow-y-auto pr-2 relative"
             ref="transcriptText"
+            style="-webkit-app-region: no-drag; user-select: text; -webkit-user-select: text;"
           >
             {{ currentText || 'Start speaking...'
             }}<span
@@ -120,6 +121,7 @@
       <div
         v-if="currentText"
         class="px-6 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-neutral-900/95"
+        style="-webkit-app-region: no-drag"
       >
         <div class="flex gap-4 text-xs text-gray-500 dark:text-gray-400">
           <span>{{ wordCount }} words</span>
