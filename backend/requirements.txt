@@ -21,9 +21,7 @@ torch>=2.0.0
 pywin32>=306; sys_platform == "win32"
 comtypes>=1.1.14; sys_platform == "win32"
 
-# macOS-specific  
-pyobjc-framework-CoreAudio>=10.0; sys_platform == "darwin"
-pyobjc-framework-AudioUnit>=10.0; sys_platform == "darwin"
+# macOS-specific (PyAudio handles Core Audio integration)
 
 # Linux-specific
 pulsectl>=22.3.2; sys_platform == "linux"
