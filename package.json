@@ -8,7 +8,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:backend\" \"npm run dev:electron\"",
+    "dev": "concurrently --kill-others --kill-others-on-fail \"npm run dev:renderer\" \"npm run dev:backend\" \"npm run dev:electron\"",
     "dev:renderer": "vite",
     "dev:electron": "cross-env ELECTRON_RENDERER_URL=http://localhost:5173 electron .",
     "dev:backend": "cd backend && python -m uvicorn main:app --reload --port 8888",
