@@ -54,9 +54,7 @@ jobs:
         shell: bash
 
       - name: Install Node Dependencies
-        run: |
-          rm -rf node_modules package-lock.json
-          npm install
+        run: npm install
 
       - name: Get app version
         id: get_version
