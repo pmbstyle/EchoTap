@@ -506,6 +506,8 @@ class TranscriptionEngine:
             # Post-process to remove hallucination patterns
             if full_text:
                 full_text = self._filter_hallucinations(full_text, source)
+                # Format text with proper punctuation and capitalization
+                full_text = self._format_transcript_text(full_text)
             
             if not full_text:
                 logger.info(f"🔍 No text detected in {source} audio chunk (duration: {len(audio_np)/sample_rate:.2f}s)")
@@ -627,6 +629,39 @@ class TranscriptionEngine:
             logger.info(f"🔧 Heavy filtering applied to {source}: '{original_text[:50]}...' → '{text[:50]}...'")
         
         return text
+    
+    def _format_transcript_text(self, text: str) -> str:
+        """Format transcript text with proper punctuation and capitalization"""
+        import re
+        
+        if not text or not text.strip():
+            return text
+            
+        # Clean up the text
+        text = text.strip()
+        
+        # Capitalize first letter of the entire text
+        if text:
+            text = text[0].upper() + text[1:]
+        
+        # Add periods at sentence boundaries (basic heuristic)
+        # Look for natural pause points and capitalize after them
+        text = re.sub(r'\b(and then|so|but|well|now|okay|alright)\s+', r'\1. ', text, flags=re.IGNORECASE)
+        
+        # Capitalize after periods
+        text = re.sub(r'(\.\s+)([a-z])', lambda m: m.group(1) + m.group(2).upper(), text)
+        
+        # Add comma before common conjunctions if missing
+        text = re.sub(r'\s+(and|but|or|so)\s+', r', \1 ', text, flags=re.IGNORECASE)
+        
+        # Add period at end if missing
+        if text and not text.endswith(('.', '!', '?')):
+            text += '.'
+            
+        # Clean up multiple spaces
+        text = re.sub(r'\s+', ' ', text)
+        
+        return text.strip()
             
     def _get_context_prompt(self) -> str:
         """Get context prompt from recent transcript"""
