@@ -98,6 +98,24 @@ class DatabaseManager:
             )
         """)
         
+        # Session translations table
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS session_translations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                target_language TEXT NOT NULL,
+                translated_transcript TEXT NOT NULL,
+                translated_summary TEXT,
+                original_transcript_length INTEGER NOT NULL,
+                translated_transcript_length INTEGER NOT NULL,
+                generation_time REAL NOT NULL,
+                model TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                UNIQUE(session_id, target_language),
+                FOREIGN KEY (session_id) REFERENCES sessions (id)
+            )
+        """)
+        
         # User preferences table
         await self.db.execute("""
             CREATE TABLE IF NOT EXISTS preferences (
@@ -129,7 +147,9 @@ class DatabaseManager:
             "CREATE INDEX IF NOT EXISTS idx_transcript_session ON transcript_segments (session_id)",
             "CREATE INDEX IF NOT EXISTS idx_transcript_time ON transcript_segments (start_time, end_time)",
             "CREATE INDEX IF NOT EXISTS idx_models_last_used ON downloaded_models (last_used DESC)",
-            "CREATE INDEX IF NOT EXISTS idx_summaries_session ON session_summaries (session_id)"
+            "CREATE INDEX IF NOT EXISTS idx_summaries_session ON session_summaries (session_id)",
+            "CREATE INDEX IF NOT EXISTS idx_translations_session ON session_translations (session_id)",
+            "CREATE INDEX IF NOT EXISTS idx_translations_language ON session_translations (target_language)"
         ]
         
         for index_sql in indexes:
@@ -600,3 +620,78 @@ class DatabaseManager:
             })
             
         return sessions
+    
+    async def save_session_translation(
+        self, 
+        session_id: str,
+        target_language: str, 
+        translation_data: Dict[str, Any]
+    ) -> bool:
+        """Save a translation for a session"""
+        try:
+            await self.db.execute("""
+                INSERT OR REPLACE INTO session_translations (
+                    session_id, target_language, translated_transcript, translated_summary,
+                    original_transcript_length, translated_transcript_length,
+                    generation_time, model, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                session_id,
+                target_language,
+                translation_data['translated_transcript'],
+                translation_data.get('translated_summary'),
+                translation_data['original_transcript_length'],
+                translation_data['translated_transcript_length'],
+                translation_data['generation_time'],
+                translation_data['model'],
+                translation_data['created_at']
+            ))
+            
+            await self.db.commit()
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to save session translation: {e}")
+            await self.db.rollback()
+            return False
+    
+    async def get_session_translation(self, session_id: str, target_language: str) -> Optional[Dict[str, Any]]:
+        """Get the translation for a session in a specific language"""
+        cursor = await self.db.execute("""
+            SELECT * FROM session_translations 
+            WHERE session_id = ? AND target_language = ?
+        """, (session_id, target_language))
+        
+        result = await cursor.fetchone()
+        if result:
+            return dict(result)
+        return None
+    
+    async def get_session_translations(self, session_id: str) -> List[Dict[str, Any]]:
+        """Get all translations for a session"""
+        cursor = await self.db.execute("""
+            SELECT * FROM session_translations 
+            WHERE session_id = ?
+            ORDER BY created_at DESC
+        """, (session_id,))
+        
+        translations = []
+        async for row in cursor:
+            translations.append(dict(row))
+        return translations
+    
+    async def delete_session_translation(self, session_id: str, target_language: str) -> bool:
+        """Delete a specific translation for a session"""
+        try:
+            cursor = await self.db.execute("""
+                DELETE FROM session_translations 
+                WHERE session_id = ? AND target_language = ?
+            """, (session_id, target_language))
+            
+            await self.db.commit()
+            return cursor.rowcount > 0
+            
+        except Exception as e:
+            logger.error(f"Failed to delete session translation: {e}")
+            await self.db.rollback()
+            return False

@@ -116,3 +116,30 @@ class ErrorResponse(BaseModel):
     error: str = Field(..., description="Error message")
     code: Optional[str] = Field(None, description="Error code")
     details: Optional[Dict[str, Any]] = Field(None, description="Additional error details")
+
+class TranslationRequest(BaseModel):
+    """Request model for translating sessions"""
+    session_id: str = Field(..., description="Session ID to translate")
+    target_language: str = Field(..., description="Target language code (e.g., 'es', 'fr', 'de')")
+
+class TranslationResponse(BaseModel):
+    """Response model for translation generation"""
+    success: bool = Field(..., description="Whether translation was generated successfully")
+    translation_data: Optional[Dict[str, Any]] = Field(None, description="Translation data if successful")
+    error: Optional[str] = Field(None, description="Error message if failed")
+
+class SessionTranslationData(BaseModel):
+    """Translation data for a transcription session"""
+    translated_transcript: str = Field(..., description="Translated transcript text")
+    translated_summary: Optional[str] = Field(None, description="Translated summary text if available")
+    target_language: str = Field(..., description="Target language code")
+    original_transcript_length: int = Field(..., description="Length of original transcript")
+    translated_transcript_length: int = Field(..., description="Length of translated transcript")
+    generation_time: float = Field(..., description="Time taken to generate translation in seconds")
+    model: str = Field(..., description="Model used for translation")
+    created_at: str = Field(..., description="ISO timestamp of creation")
+
+class LanguageInfo(BaseModel):
+    """Supported language information"""
+    code: str = Field(..., description="Language code (e.g., 'es', 'fr')")
+    name: str = Field(..., description="Language name (e.g., 'Spanish', 'French')")

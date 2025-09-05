@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from audio_capture import AudioCapture
 from transcription_engine import TranscriptionEngine
 from summarization_engine import SummarizationEngine
+from translation_engine import TranslationEngine
 from database import DatabaseManager
 from models import (
     TranscriptionMessage, 
@@ -29,7 +30,11 @@ from models import (
     ModelInfo,
     SummaryRequest,
     SummaryResponse,
-    SessionSummaryData
+    SessionSummaryData,
+    TranslationRequest,
+    TranslationResponse,
+    SessionTranslationData,
+    LanguageInfo
 )
 
 # Configure logging
@@ -41,6 +46,7 @@ active_connections: List[WebSocket] = []
 audio_capture: Optional[AudioCapture] = None
 transcription_engine: Optional[TranscriptionEngine] = None
 summarization_engine: Optional[SummarizationEngine] = None
+translation_engine: Optional[TranslationEngine] = None
 database: Optional[DatabaseManager] = None
 current_session_id: Optional[str] = None
 current_session_transcript = ""  # Track current session transcript for live sync
@@ -57,7 +63,7 @@ is_speech_active = False  # Track if we're currently in a speech segment
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan management"""
-    global transcription_engine, summarization_engine, database, audio_capture, main_event_loop
+    global transcription_engine, summarization_engine, translation_engine, database, audio_capture, main_event_loop
     
     # Startup
     logger.info("Starting EchoTap backend...")
@@ -79,6 +85,9 @@ async def lifespan(app: FastAPI):
     # Initialize summarization engine
     summarization_engine = SummarizationEngine()
     
+    # Initialize translation engine
+    translation_engine = TranslationEngine()
+    
     # Initialize audio capture for backend recording
     audio_capture = AudioCapture()
     
@@ -98,6 +107,9 @@ async def lifespan(app: FastAPI):
         
     if summarization_engine:
         summarization_engine.cleanup()
+        
+    if translation_engine:
+        translation_engine.cleanup()
         
     logger.info("EchoTap backend shutdown complete")
 
@@ -622,6 +634,60 @@ async def handle_websocket_message(websocket: WebSocket, message: Dict):
                     "success": success
                 }))
                 
+        elif message_type == "get_supported_languages":
+            if translation_engine:
+                languages = translation_engine.get_supported_languages()
+                await websocket.send_text(json.dumps({
+                    "type": "supported_languages",
+                    "languages": languages
+                }))
+                
+        elif message_type == "translate_session":
+            session_id = message.get("session_id")
+            target_language = message.get("target_language")
+            if session_id and target_language:
+                success = await translate_session_content(session_id, target_language)
+                await websocket.send_text(json.dumps({
+                    "type": "translation_result",
+                    "session_id": session_id,
+                    "target_language": target_language,
+                    "success": success
+                }))
+                
+        elif message_type == "get_session_translation":
+            session_id = message.get("session_id")
+            target_language = message.get("target_language")
+            if database and session_id and target_language:
+                translation = await database.get_session_translation(session_id, target_language)
+                await websocket.send_text(json.dumps({
+                    "type": "session_translation",
+                    "session_id": session_id,
+                    "target_language": target_language,
+                    "translation": translation
+                }))
+                
+        elif message_type == "get_session_translations":
+            session_id = message.get("session_id")
+            if database and session_id:
+                translations = await database.get_session_translations(session_id)
+                await websocket.send_text(json.dumps({
+                    "type": "session_translations",
+                    "session_id": session_id,
+                    "translations": translations
+                }))
+                
+        elif message_type == "get_translation_status":
+            if translation_engine:
+                model_info = translation_engine.get_model_info()
+                await websocket.send_text(json.dumps({
+                    "type": "translation_status",
+                    "available": model_info["is_available"],
+                    "downloaded": model_info["is_downloaded"],
+                    "loaded": model_info["is_loaded"],
+                    "model_name": model_info["model_name"],
+                    "supported_languages": model_info["supported_languages"]
+                }))
+                
         else:
             logger.warning(f"Unknown message type: {message_type}")
             
@@ -737,6 +803,62 @@ async def generate_session_summary(session_id: str) -> bool:
         
     except Exception as e:
         logger.error(f"Error generating summary for session {session_id}: {e}")
+        return False
+
+async def translate_session_content(session_id: str, target_language: str) -> bool:
+    """Translate transcript and summary for a completed session"""
+    global database, translation_engine
+    
+    if not database or not translation_engine or not translation_engine.is_initialized:
+        logger.info("Translation skipped - translation engine not available")
+        return False
+    
+    try:
+        logger.info(f"🌐 Translating session {session_id} to {target_language} (allowing re-translation)")
+        # Get session transcript
+        transcript_data = await database.get_session_transcript(session_id)
+        if not transcript_data:
+            logger.warning(f"No transcript found for session {session_id}")
+            return False
+            
+        full_text = transcript_data.get('full_text', '')
+        if len(full_text.strip()) < 20:  # Too short to translate
+            logger.info(f"Session {session_id} transcript too short for translation")
+            return False
+            
+        # Get summary if available
+        summary_data = await database.get_session_summary(session_id)
+        summary_text = summary_data.get('summary') if summary_data else None
+        logger.info(f"Retrieved summary data: exists={bool(summary_data)}, text_length={len(summary_text) if summary_text else 0}")
+        
+        # Generate translation
+        translation_result = await translation_engine.translate_session_content(
+            full_text, summary_text, target_language
+        )
+        if not translation_result:
+            logger.warning(f"Failed to translate session {session_id} to {target_language}")
+            return False
+            
+        # Save translation to database
+        success = await database.save_session_translation(session_id, target_language, translation_result)
+        if success:
+            logger.info(f"✅ Translation generated and saved for session {session_id} to {target_language}")
+            logger.info(f"Transcript translation: {len(translation_result['translated_transcript'])} chars")
+            logger.info(f"Summary translation: {len(translation_result.get('translated_summary') or '') if translation_result.get('translated_summary') else 'None'} chars")
+            
+            # Broadcast translation completion to connected clients
+            await broadcast_message({
+                "type": "translation_generated",
+                "session_id": session_id,
+                "target_language": target_language,
+                "translated_transcript": translation_result['translated_transcript'][:100] + "..." if len(translation_result['translated_transcript']) > 100 else translation_result['translated_transcript'],
+                "translated_summary": translation_result.get('translated_summary')
+            })
+            
+        return success
+        
+    except Exception as e:
+        logger.error(f"Error translating session {session_id} to {target_language}: {e}")
         return False
 
 # Recording is now handled by frontend VAD - backend only processes transcription

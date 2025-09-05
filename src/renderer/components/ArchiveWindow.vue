@@ -15,6 +15,14 @@
           <span class="text-base font-semibold text-gray-900 dark:text-white">
             {{ currentView === 'list' ? 'Archive' : 'Transcript Details' }}
           </span>
+          <span
+            class="text-xs"
+            v-if="selectedSession && selectedSession.created_at"
+          >
+            {{ formatDate(selectedSession.created_at) }} •
+            {{ selectedSession.source }} •
+            {{ formatDuration(selectedSession.duration) }} min
+          </span>
         </div>
         <div class="flex gap-2" style="-webkit-app-region: no-drag">
           <button
@@ -87,8 +95,13 @@
                 >
                   {{ formatDate(session.created_at) }}
                 </div>
-                <div class="text-xs text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-2">
-                  <span>{{ session.source }} • {{ formatDuration(session.duration) }} min</span>
+                <div
+                  class="text-xs text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-2"
+                >
+                  <span
+                    >{{ session.source }} •
+                    {{ formatDuration(session.duration) }} min</span
+                  >
                   <div
                     v-if="session.has_summary"
                     class="w-1.5 h-1.5 bg-blue-500 rounded-full"
@@ -151,27 +164,25 @@
         </div>
       </template>
       <template v-if="currentView === 'detail' && selectedSession">
-        <div class="flex-1 flex flex-col overflow-hidden relative" style="-webkit-app-region: no-drag">
+        <div
+          class="flex-1 flex flex-col overflow-hidden relative"
+          style="-webkit-app-region: no-drag"
+        >
           <div class="flex-1 flex flex-col overflow-hidden">
             <!-- Session Header -->
-            <div class="px-5 pt-5 pb-4 border-b border-gray-200 dark:border-gray-700">
-              <h3 class="font-medium text-gray-900 dark:text-white mb-2">
-                {{ formatDate(selectedSession.created_at) }}
-              </h3>
-              <div class="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                {{ selectedSession.source }} •
-                {{ formatDuration(selectedSession.duration) }}
-              </div>
-              
+            <div class="border-b border-gray-200 dark:border-gray-700">
               <!-- Tab Navigation -->
-              <div class="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg" style="-webkit-app-region: no-drag">
+              <div
+                class="flex gap-1 bg-gray-100 dark:bg-gray-800"
+                style="-webkit-app-region: no-drag"
+              >
                 <button
                   @click="activeTab = 'transcript'"
                   :class="[
-                    'flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors duration-200',
+                    'flex-1 py-2 px-3 text-sm font-medium transition-colors duration-200',
                     activeTab === 'transcript'
-                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white',
                   ]"
                 >
                   Transcript
@@ -179,10 +190,10 @@
                 <button
                   @click="activeTab = 'summary'"
                   :class="[
-                    'flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors duration-200 flex items-center justify-center gap-2',
+                    'flex-1 py-2 px-3 text-sm font-medium transition-colors duration-200 flex items-center justify-center gap-2',
                     activeTab === 'summary'
-                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white',
                   ]"
                 >
                   Summary
@@ -198,88 +209,220 @@
                   ></div>
                 </button>
               </div>
+
+              <!-- Translation Controls -->
+              <div
+                class="p-3 bg-gray-50 dark:bg-gray-800"
+                style="-webkit-app-region: no-drag"
+                v-if="currentTranslation"
+              >
+                <!-- Language Display/Toggle -->
+                <div class="flex items-center justify-between">
+                  <div
+                    class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400"
+                  >
+                    <span>Showing:</span>
+                    <button
+                      @click="showOriginal = !showOriginal"
+                      :class="[
+                        'px-2 py-1 rounded text-xs font-medium transition-colors duration-200',
+                        showOriginal
+                          ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600',
+                      ]"
+                    >
+                      {{
+                        showOriginal
+                          ? 'Original'
+                          : getLanguageName(selectedLanguage)
+                      }}
+                    </button>
+                    <!-- Warning when summary translation is not available -->
+                    <div
+                      v-if="
+                        !showOriginal &&
+                        activeTab === 'summary' &&
+                        !currentTranslation?.translated_summary
+                      "
+                      class="flex items-center gap-1 text-amber-600 dark:text-amber-400"
+                    >
+                      <svg
+                        class="w-3 h-3"
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                      >
+                        <path
+                          d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"
+                        />
+                      </svg>
+                      <span class="text-xs"
+                        >Summary translation unavailable</span
+                      >
+                    </div>
+                  </div>
+                  <button
+                    @click="showOriginal = !showOriginal"
+                    class="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors duration-200"
+                  >
+                    {{
+                      showOriginal ? '→ View Translation' : '← View Original'
+                    }}
+                  </button>
+                </div>
+              </div>
             </div>
 
             <!-- Tab Content -->
-            <div class="flex-1 flex flex-col overflow-hidden" style="-webkit-app-region: no-drag">
-              <!-- Transcript Tab -->
-              <div v-if="activeTab === 'transcript'" class="flex-1 flex flex-col p-5 overflow-hidden">
-                <div
-                  class="flex-1 text-base leading-relaxed text-gray-900 dark:text-white whitespace-pre-wrap break-words overflow-y-auto pr-2"
-                  ref="transcriptText"
-                  style="-webkit-app-region: no-drag; user-select: text; -webkit-user-select: text;"
-                >
-                  {{ selectedSession.fullText || getPreviewText(selectedSession) }}
-                </div>
-                
-                <!-- Transcript Footer with stats -->
-                <div class="py-3 px-5 border-t border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-neutral-900/95 -mx-5 -mb-5">
-                  <div class="flex gap-4 text-xs text-gray-500 dark:text-gray-400">
-                    <span>{{ getWordCount(selectedSession) }} words</span>
-                    <span>{{ getCharCount(selectedSession) }} characters</span>
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="activeTab === 'summary' && selectedSession.has_summary && !summaryGenerating" class="flex-1 flex flex-col p-5 overflow-hidden">
+            <div
+              class="flex-1 flex flex-col overflow-hidden"
+              style="-webkit-app-region: no-drag"
+            >
+              <div
+                class="flex-1 flex flex-col p-5 overflow-hidden"
+              >
                 <div
                   class="flex-1 text-base leading-relaxed text-gray-900 dark:text-white overflow-y-auto pr-2 summary-content"
                   ref="transcriptText"
-                  style="-webkit-app-region: no-drag; user-select: text; -webkit-user-select: text;"
-                  v-html="formatSummaryAsHTML(selectedSession.summary)"
+                  style="
+                    -webkit-app-region: no-drag;
+                    user-select: text;
+                    -webkit-user-select: text;
+                  "
+                  v-html="formatSummaryAsHTML(getSummaryText())"
                 ></div>
-                
+
                 <!-- Summary Footer with stats -->
-                <div class="py-3 px-5 border-t border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-neutral-900/95 -mx-5 -mb-5">
-                  <div class="flex justify-between items-center text-xs text-gray-500 dark:text-gray-400">
-                    <div class="flex gap-4">
+                <div
+                  class="py-3 px-5 border-t border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-neutral-900/95 -mx-5 -mb-5"
+                >
+                  <div
+                    class="flex justify-between items-center text-xs text-gray-500 dark:text-gray-400"
+                  >
+                    <div class="flex gap-4" v-if="activeTab === 'summary'">
                       <span>{{ getSummaryWordCount() }} words</span>
-                      <span>{{ selectedSession.compression_ratio ? Math.round(selectedSession.compression_ratio) + 'x compression' : '' }}</span>
+                      <span>{{
+                        selectedSession.compression_ratio
+                          ? Math.round(selectedSession.compression_ratio) +
+                            'x compression'
+                          : ''
+                      }}</span>
                     </div>
-                    <div class="flex items-center gap-3">
+                    <div
+                      class="flex gap-4 text-xs text-gray-500 dark:text-gray-400"
+                      v-if="activeTab === 'transcript'"
+                    >
+                      <span>{{ getWordCount(selectedSession) }} words</span>
+                      <span
+                        >{{ getCharCount(selectedSession) }} characters</span
+                      >
+                    </div>
+                    <div class="flex items-center gap-3" v-if="activeTab === 'summary'">
                       <button
                         @click="regenerateSummary"
                         :disabled="summaryGenerating"
                         class="flex items-center gap-1 px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                         title="Regenerate summary"
                       >
-                        <svg 
+                        <svg
                           v-if="!summaryGenerating"
-                          class="w-3 h-3" 
-                          viewBox="0 0 24 24" 
+                          class="w-3 h-3"
+                          viewBox="0 0 24 24"
                           fill="currentColor"
                         >
-                          <path d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"/>
+                          <path
+                            d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"
+                          />
                         </svg>
                         <div
                           v-else
                           class="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin"
                         ></div>
-                        <span>{{ summaryGenerating ? 'Generating...' : 'Regenerate' }}</span>
+                        <span>{{
+                          summaryGenerating ? 'Generating...' : 'Regenerate'
+                        }}</span>
                       </button>
-                      <span v-if="selectedSession.summary_model" class="text-gray-400">
-                        {{ selectedSession.summary_model }}
-                      </span>
+                    </div>
+                    <div class="flex flex-col items-center justify-between">
+                      <div class="flex items-center gap-2">
+                        <select
+                          v-model="selectedLanguage"
+                          @change="onLanguageChange"
+                          :disabled="translationGenerating"
+                          class="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-0.5 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-blue-500 dark:focus:border-blue-400 disabled:opacity-50"
+                        >
+                          <option value="">Select language</option>
+                          <option
+                            v-for="lang in supportedLanguages"
+                            :key="lang.code"
+                            :value="lang.code"
+                          >
+                            {{ lang.name }}
+                          </option>
+                        </select>
+                        <button
+                          @click="translateSession"
+                          :disabled="!selectedLanguage || translationGenerating"
+                          class="flex items-center gap-1 px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Translate transcript and summary"
+                        >
+                          <svg
+                            v-if="!translationGenerating"
+                            class="w-3 h-3"
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                          >
+                            <path
+                              d="M12.87 15.07l-2.54-2.51.03-.03A17.52 17.52 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"
+                            />
+                          </svg>
+                          <div
+                            v-else
+                            class="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin"
+                          ></div>
+                          <span>{{
+                            translationGenerating
+                              ? 'Translating...'
+                              : 'Translate'
+                          }}</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
 
               <!-- Summary Tab -->
-              <div v-if="activeTab === 'summary' && !selectedSession.has_summary && !summaryGenerating" class="flex-1 flex flex-col p-5 overflow-hidden">
+              <div
+                v-if="
+                  activeTab === 'summary' &&
+                  !selectedSession.has_summary &&
+                  !summaryGenerating
+                "
+                class="flex-1 flex flex-col p-5 overflow-hidden"
+              >
                 <!-- Summary Generation State -->
-                <div v-if="!selectedSession.has_summary && !summaryGenerating" class="flex-1 flex items-center justify-center">
+                <div
+                  v-if="!selectedSession.has_summary && !summaryGenerating"
+                  class="flex-1 flex items-center justify-center"
+                >
                   <div class="text-center max-w-md">
-                    <div class="w-16 h-16 mx-auto mb-4 text-gray-400 dark:text-gray-500">
+                    <div
+                      class="w-16 h-16 mx-auto mb-4 text-gray-400 dark:text-gray-500"
+                    >
                       <svg viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M9 5v2h6.59L4 18.59 5.41 20 17 8.41V15h2V5H9z"/>
+                        <path
+                          d="M9 5v2h6.59L4 18.59 5.41 20 17 8.41V15h2V5H9z"
+                        />
                       </svg>
                     </div>
-                    <h4 class="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                    <h4
+                      class="text-lg font-medium text-gray-900 dark:text-white mb-2"
+                    >
                       No Summary Yet
                     </h4>
                     <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                      Generate an AI summary of this transcript to see key points and highlights.
+                      Generate an AI summary of this transcript to see key
+                      points and highlights.
                     </p>
                     <button
                       @click="generateSummary"
@@ -291,10 +434,15 @@
                 </div>
               </div>
 
-              <div v-if="activeTab === 'summary' && summaryGenerating" class="flex-1 flex flex-col p-5 overflow-hidden">
+              <div
+                v-if="activeTab === 'summary' && summaryGenerating"
+                class="flex-1 flex flex-col p-5 overflow-hidden"
+              >
                 <div class="flex-1 flex items-center justify-center">
                   <div class="text-center">
-                    <div class="w-8 h-8 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto mb-4"></div>
+                    <div
+                      class="w-8 h-8 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto mb-4"
+                    ></div>
                     <p class="text-sm text-gray-600 dark:text-gray-400">
                       Generating summary...
                     </p>
@@ -325,6 +473,11 @@ export default {
     const summaryText = ref(null)
     const activeTab = ref('transcript')
     const summaryGenerating = ref(false)
+    const supportedLanguages = ref([])
+    const selectedLanguage = ref('')
+    const currentTranslation = ref(null)
+    const translationGenerating = ref(false)
+    const showOriginal = ref(false)
 
     const handleBackendMessage = message => {
       switch (message.type) {
@@ -346,8 +499,10 @@ export default {
           ) {
             if (message.summary) {
               selectedSession.value.summary = message.summary.summary
-              selectedSession.value.summary_words = message.summary.summary_words
-              selectedSession.value.compression_ratio = message.summary.compression_ratio
+              selectedSession.value.summary_words =
+                message.summary.summary_words
+              selectedSession.value.compression_ratio =
+                message.summary.compression_ratio
               selectedSession.value.summary_model = message.summary.model
               selectedSession.value.has_summary = true
             }
@@ -355,15 +510,21 @@ export default {
           break
         case 'summary_generated':
           // Update session in list when summary is generated
-          const sessionIndex = sessions.value.findIndex(s => s.id === message.session_id)
+          const sessionIndex = sessions.value.findIndex(
+            s => s.id === message.session_id
+          )
           if (sessionIndex !== -1) {
             sessions.value[sessionIndex].has_summary = true
             sessions.value[sessionIndex].summary = message.summary
-            sessions.value[sessionIndex].compression_ratio = message.compression_ratio
+            sessions.value[sessionIndex].compression_ratio =
+              message.compression_ratio
           }
-          
+
           // Update selected session if it matches
-          if (selectedSession.value && selectedSession.value.id === message.session_id) {
+          if (
+            selectedSession.value &&
+            selectedSession.value.id === message.session_id
+          ) {
             selectedSession.value.summary = message.summary
             selectedSession.value.compression_ratio = message.compression_ratio
             selectedSession.value.has_summary = true
@@ -371,7 +532,10 @@ export default {
           }
           break
         case 'summary_generation_result':
-          if (selectedSession.value && selectedSession.value.id === message.session_id) {
+          if (
+            selectedSession.value &&
+            selectedSession.value.id === message.session_id
+          ) {
             summaryGenerating.value = false
             if (!message.success) {
               console.error('Failed to generate summary')
@@ -388,6 +552,56 @@ export default {
               selectedSession.value.id === message.session_id
             ) {
               goBack()
+            }
+          }
+          break
+        case 'supported_languages':
+          supportedLanguages.value = message.languages || []
+          break
+        case 'translation_result':
+          if (
+            selectedSession.value &&
+            selectedSession.value.id === message.session_id
+          ) {
+            translationGenerating.value = false
+            if (message.success) {
+              // Load the translation data
+              loadSessionTranslation(
+                message.session_id,
+                message.target_language
+              )
+            }
+          }
+          break
+        case 'session_translation':
+          if (
+            selectedSession.value &&
+            selectedSession.value.id === message.session_id
+          ) {
+            currentTranslation.value = message.translation
+            // Translation data loaded successfully
+            if (message.translation) {
+              showOriginal.value = false // Show translation by default when loaded
+            }
+          }
+          break
+        case 'translation_generated':
+          // Update any UI indicators when translation is complete
+          if (
+            selectedSession.value &&
+            selectedSession.value.id === message.session_id
+          ) {
+            translationGenerating.value = false
+            // Load the new translation and set the language if not already set
+            if (
+              selectedLanguage.value === message.target_language ||
+              !selectedLanguage.value
+            ) {
+              selectedLanguage.value = message.target_language
+              loadSessionTranslation(
+                message.session_id,
+                message.target_language
+              )
             }
           }
           break
@@ -447,6 +661,11 @@ export default {
       currentView.value = 'detail'
       activeTab.value = 'transcript'
 
+      // Reset translation state
+      selectedLanguage.value = ''
+      currentTranslation.value = null
+      showOriginal.value = true
+
       if (!session.fullText) {
         try {
           await window.electronAPI.sendToBackend({
@@ -480,6 +699,10 @@ export default {
     const goBack = () => {
       currentView.value = 'list'
       selectedSession.value = null
+      // Reset translation state
+      selectedLanguage.value = ''
+      currentTranslation.value = null
+      showOriginal.value = true
     }
 
     const copySession = async session => {
@@ -494,13 +717,13 @@ export default {
     const copyTranscript = async () => {
       if (selectedSession.value) {
         let textToCopy = ''
-        
-        if (activeTab.value === 'summary' && selectedSession.value.summary) {
-          textToCopy = selectedSession.value.summary
+
+        if (activeTab.value === 'summary') {
+          textToCopy = getSummaryText()
         } else {
-          textToCopy = selectedSession.value.fullText || selectedSession.value.preview || ''
+          textToCopy = getTranscriptText()
         }
-        
+
         try {
           await navigator.clipboard.writeText(textToCopy)
         } catch (error) {
@@ -524,9 +747,9 @@ export default {
 
     const generateSummary = async () => {
       if (!selectedSession.value) return
-      
+
       summaryGenerating.value = true
-      
+
       try {
         await window.electronAPI.sendToBackend({
           type: 'generate_summary',
@@ -540,9 +763,9 @@ export default {
 
     const regenerateSummary = async () => {
       if (!selectedSession.value) return
-      
+
       summaryGenerating.value = true
-      
+
       try {
         await window.electronAPI.sendToBackend({
           type: 'generate_summary',
@@ -566,46 +789,130 @@ export default {
       }
     }
 
-    const formatSummaryAsHTML = (summaryText) => {
+    const formatSummaryAsHTML = summaryText => {
       if (!summaryText) return ''
-      
+
       // Escape any potential HTML entities first for security
-      const escapeHTML = (text) => text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#x27;')
-      
+      const escapeHTML = text =>
+        text
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#x27;')
+
       // Process the text step by step
       let html = escapeHTML(summaryText)
-      
+
       // Convert **Section Headers** to proper headings
-      html = html.replace(/\*\*(.*?)\*\*:/g, '<h3 class="section-header">$1</h3>')
-      
-      // Convert remaining **bold** text  
-      html = html.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
-      
+      html = html.replace(
+        /\*\*(.*?)\*\*:/g,
+        '<h3 class="section-header">$1</h3>'
+      )
+
+      // Convert remaining **bold** text
+      html = html.replace(
+        /\*\*(.*?)\*\*/g,
+        '<strong class="font-semibold">$1</strong>'
+      )
+
       // Convert bullet points to list items
       html = html.replace(/^\* (.+)$/gm, '<li>$1</li>')
-      
+
       // Split into sections and wrap appropriately
       const sections = html.split(/(?=<h3)/g).filter(section => section.trim())
-      
+
       const formattedSections = sections.map(section => {
         // Wrap consecutive <li> elements in <ul> tags
-        section = section.replace(/(<li>.*<\/li>[\s\n]*)+/gs, (match) => {
+        section = section.replace(/(<li>.*<\/li>[\s\n]*)+/gs, match => {
           const cleanedMatch = match.replace(/\n/g, '').trim()
           return `<ul class="section-list">${cleanedMatch}</ul>`
         })
-        
+
         // Convert line breaks to proper spacing
         section = section.replace(/\n/g, '<br>')
-        
+
         return `<div class="section">${section}</div>`
       })
-      
+
       return formattedSections.join('')
+    }
+
+    const getTranscriptText = () => {
+      if (
+        !showOriginal.value &&
+        currentTranslation.value?.translated_transcript
+      ) {
+        return currentTranslation.value.translated_transcript
+      }
+      return (
+        selectedSession.value?.fullText ||
+        getPreviewText(selectedSession.value) ||
+        ''
+      )
+    }
+
+    const getSummaryText = () => {
+      if (!showOriginal.value && currentTranslation.value?.translated_summary) {
+        return currentTranslation.value.translated_summary
+      }
+      return selectedSession.value?.summary || ''
+    }
+
+    const getLanguageName = languageCode => {
+      const language = supportedLanguages.value.find(
+        lang => lang.code === languageCode
+      )
+      return language ? language.name : languageCode
+    }
+
+    const loadSupportedLanguages = async () => {
+      try {
+        await window.electronAPI.sendToBackend({
+          type: 'get_supported_languages',
+        })
+      } catch (error) {
+        console.error('Failed to load supported languages:', error)
+      }
+    }
+
+    const translateSession = async () => {
+      if (!selectedSession.value || !selectedLanguage.value) return
+
+      translationGenerating.value = true
+
+      try {
+        await window.electronAPI.sendToBackend({
+          type: 'translate_session',
+          session_id: selectedSession.value.id,
+          target_language: selectedLanguage.value,
+        })
+      } catch (error) {
+        console.error('Failed to translate session:', error)
+        translationGenerating.value = false
+      }
+    }
+
+    const loadSessionTranslation = async (sessionId, targetLanguage) => {
+      try {
+        await window.electronAPI.sendToBackend({
+          type: 'get_session_translation',
+          session_id: sessionId,
+          target_language: targetLanguage,
+        })
+      } catch (error) {
+        console.error('Failed to load session translation:', error)
+      }
+    }
+
+    const onLanguageChange = async () => {
+      if (selectedSession.value && selectedLanguage.value) {
+        // Check if translation already exists
+        await loadSessionTranslation(
+          selectedSession.value.id,
+          selectedLanguage.value
+        )
+      }
     }
 
     const handleKeydown = event => {
@@ -633,6 +940,7 @@ export default {
       }
 
       await loadSessions()
+      await loadSupportedLanguages()
       console.log('📋 ArchiveWindow mounted')
     })
 
@@ -660,6 +968,11 @@ export default {
       summaryText,
       activeTab,
       summaryGenerating,
+      supportedLanguages,
+      selectedLanguage,
+      currentTranslation,
+      translationGenerating,
+      showOriginal,
       formatDate,
       formatDuration,
       getPreviewText,
@@ -674,6 +987,11 @@ export default {
       regenerateSummary,
       getSummaryWordCount,
       formatSummaryAsHTML,
+      getTranscriptText,
+      getSummaryText,
+      getLanguageName,
+      translateSession,
+      onLanguageChange,
       closeWindow,
     }
   },
@@ -753,7 +1071,7 @@ export default {
 }
 
 .summary-content .section-list li::before {
-  content: "•";
+  content: '•';
   color: rgb(59 130 246);
   font-weight: bold;
   position: absolute;
