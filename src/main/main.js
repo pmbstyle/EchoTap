@@ -87,6 +87,12 @@ function broadcastStateToAllWindows() {
     try {
       // Check webContents validity just before sending
       if (window.webContents && !window.webContents.isDestroyed()) {
+        // Only send state updates to windows that are ready to receive them
+        // Skip broadcasting during window creation to prevent interference
+        if (window.webContents.isLoading()) {
+          // Skipping state broadcast to loading window
+          return
+        }
         window.webContents.send('app-state-changed', globalAppState)
       }
     } catch (error) {
@@ -357,6 +363,20 @@ function createTranscriptWindow() {
 
   transcriptWindow.once('ready-to-show', () => {
     transcriptWindow.show()
+    
+    // Send initial state to transcript window after a brief delay
+    // to prevent interference with ongoing operations
+    setTimeout(() => {
+      try {
+        if (transcriptWindow && !transcriptWindow.isDestroyed() && 
+            transcriptWindow.webContents && !transcriptWindow.webContents.isDestroyed()) {
+          transcriptWindow.webContents.send('app-state-changed', globalAppState)
+          // Initial state sent to transcript window
+        }
+      } catch (error) {
+        console.warn('Failed to send initial state to transcript window:', error.message)
+      }
+    }, 100)
   })
 
   transcriptWindow.on('closed', () => {

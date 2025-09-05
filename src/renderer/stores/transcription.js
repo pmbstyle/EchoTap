@@ -9,9 +9,7 @@ export const useTranscriptionStore = defineStore('transcription', () => {
   // Check if this window should have audio processing (main window only)
   const urlParams = new URLSearchParams(window.location.search)
   const isMainWindow = !urlParams.get('mode') // No mode param = main window
-  console.log(
-    `🪟 Window initialized: mode=${urlParams.get('mode')}, isMainWindow=${isMainWindow}`
-  )
+  // Window initialized
 
   if (isMainWindow) {
     audioProcessing = useAudioProcessing()
@@ -146,19 +144,34 @@ export const useTranscriptionStore = defineStore('transcription', () => {
 
         // Listen for state changes from main process
         window.electronAPI.onAppStateChanged((event, newState) => {
-          globalState.value = { ...globalState.value, ...newState }
+          // Prevent recording state interference from window operations
+          // Only update recording state if we're not the main window or if recording actually changed
+          const currentRecording = globalState.value.isRecording
+          const newRecording = newState.isRecording
+          
+          if (isMainWindow && currentRecording && !newRecording && audioProcessing?.isRecording?.value) {
+            // Main window: Don't let external state changes stop our active recording
+            // Protecting recording state from external interference
+            const stateWithoutRecording = { ...newState }
+            delete stateWithoutRecording.isRecording
+            delete stateWithoutRecording.isListening
+            globalState.value = { ...globalState.value, ...stateWithoutRecording }
+          } else {
+            // Normal state update
+            globalState.value = { ...globalState.value, ...newState }
+          }
         })
 
         // Set up audio processing state synchronization for main window
         if (isMainWindow && audioProcessing) {
           watch(
             () => audioProcessing.isRecording.value,
-            newRecording => {
-              console.log(
-                `🎤 Audio processing recording state changed to: ${newRecording}`
-              )
+            (newRecording, oldRecording) => {
+              // Audio processing recording state changed
               // Update global state via IPC
-              window.electronAPI.updateAppState({ isRecording: newRecording })
+              if (window.electronAPI) {
+                window.electronAPI.updateAppState({ isRecording: newRecording })
+              }
             },
             { immediate: true }
           )

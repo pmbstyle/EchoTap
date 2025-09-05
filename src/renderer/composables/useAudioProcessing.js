@@ -28,6 +28,13 @@ export function useAudioProcessing() {
   const initializeAudioContext = async () => {
     try {
       // Request microphone access
+      
+      // Check if microphone is available
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const audioInputs = devices.filter(device => device.kind === 'audioinput')
+      console.log(`🎧 Found ${audioInputs.length} audio input devices:`, audioInputs.map(d => d.label || 'Unnamed device'))
+      
+      // Request microphone access
       mediaStream.value = await navigator.mediaDevices.getUserMedia({
         audio: {
           sampleRate: 16000,
@@ -37,12 +44,15 @@ export function useAudioProcessing() {
           autoGainControl: true,
         },
       })
+      console.log('✅ Microphone access granted')
 
       // Create audio context
+      console.log('🔊 Creating audio context...')
       audioContext.value = new (window.AudioContext ||
         window.webkitAudioContext)({
         sampleRate: 16000,
       })
+      console.log(`✅ Audio context created, state: ${audioContext.value.state}`)
 
       // Create source and analyser
       mediaStreamSource.value = audioContext.value.createMediaStreamSource(
@@ -62,23 +72,37 @@ export function useAudioProcessing() {
         analyserNode.value.frequencyBinCount
       )
 
-      // Initialize MediaRecorder for 1-second chunked streaming
-      chunkingMediaRecorder.value = new MediaRecorder(mediaStream.value, {
-        mimeType: 'audio/webm',
-        audioBitsPerSecond: 16000,
-      })
-
-      chunkingMediaRecorder.value.ondataavailable = async event => {
-        if (event.data.size > 0 && isStreamingChunks.value) {
-          console.log(`📦 Processing 1-second chunk: ${event.data.size} bytes`)
-          await processAudioChunk(event.data)
-        }
-      }
+      // MediaRecorder for chunking is disabled - using backend recording instead
+      // Frontend only handles VAD detection for triggering backend recording
+      console.log('📢 Using backend recording - frontend chunking disabled')
 
       console.log('✅ Audio context initialized successfully')
       return true
     } catch (error) {
       console.error('❌ Failed to initialize audio context:', error)
+      
+      // Detailed error logging for different error types
+      if (error.name === 'NotAllowedError') {
+        console.error('🚫 Microphone access denied by user or browser policy')
+      } else if (error.name === 'NotFoundError') {
+        console.error('🔍 No microphone device found')
+      } else if (error.name === 'NotReadableError') {
+        console.error('🔒 Microphone is already in use by another application (possibly Google Meet, Discord, etc.)')
+      } else if (error.name === 'OverconstrainedError') {
+        console.error('⚙️ Audio constraints cannot be satisfied (sample rate, channels, etc.)')
+      } else if (error.name === 'SecurityError') {
+        console.error('🛡️ Security error - check HTTPS and permissions')
+      } else if (error.name === 'AbortError') {
+        console.error('⏹️ Audio initialization was aborted')
+      } else {
+        console.error('🔧 Unknown audio error:', {
+          name: error.name,
+          message: error.message,
+          code: error.code,
+          stack: error.stack
+        })
+      }
+      
       return false
     }
   }
@@ -167,93 +191,55 @@ export function useAudioProcessing() {
     return buffer
   }
 
-  const processAudioRecording = async audioFloat32Array => {
+  const processVADAudio = async (audioFloat32Array) => {
     if (!audioFloat32Array || audioFloat32Array.length === 0) {
-      console.warn('⚠️ No audio data to process')
+      console.warn('⚠️ No VAD audio data to process')
       return
     }
 
     try {
-      console.log(
-        `🎤 Processing VAD audio: ${audioFloat32Array.length} samples`
-      )
+      // Processing VAD speech segment
 
       // Convert to WAV format
       const wavBuffer = float32ArrayToWav(audioFloat32Array, 16000)
 
       // Send to backend for transcription
       if (window.electronAPI) {
-        await window.electronAPI.sendToBackend({
-          type: 'transcribe_audio',
-          audio_data: Array.from(new Uint8Array(wavBuffer)),
-          sample_rate: 16000,
-        })
+        try {
+          // Convert to base64 safely to avoid stack overflow
+          const uint8Array = new Uint8Array(wavBuffer)
+          
+          // Use chunked conversion to avoid stack overflow with large arrays
+          let binaryString = ''
+          const chunkSize = 8192
+          for (let i = 0; i < uint8Array.length; i += chunkSize) {
+            const chunk = uint8Array.slice(i, i + chunkSize)
+            binaryString += String.fromCharCode(...chunk)
+          }
+          const base64Audio = btoa(binaryString)
+          
+          const result = await window.electronAPI.sendToBackend({
+            type: 'transcribe_audio',
+            audio_data: base64Audio,
+            sample_rate: 16000,
+          })
+          
+          if (!result || !result.success) {
+            console.warn('⚠️ Backend communication failed:', result?.error)
+          }
+        } catch (ipcError) {
+          console.error('❌ IPC communication error:', ipcError)
+        }
       }
     } catch (error) {
       console.error('❌ Error processing VAD audio:', error)
     }
   }
 
-  const processAudioChunk = async audioBlob => {
-    try {
-      console.log(`📦 Processing 1-second chunk: ${audioBlob.size} bytes`)
+  // processAudioChunk function removed - backend handles all audio processing
+  // Frontend chunking eliminated to prevent crashes and duplicate sessions
 
-      // Convert WebM audio to Float32Array using Web Audio API
-      const arrayBuffer = await audioBlob.arrayBuffer()
-
-      if (arrayBuffer.byteLength === 0) {
-        console.log('⚠️ Empty audio chunk, skipping')
-        return
-      }
-
-      const audioBuffer = await audioContext.value.decodeAudioData(arrayBuffer)
-
-      // Extract audio samples (mono channel)
-      const audioSamples = audioBuffer.getChannelData(0)
-
-      // Convert to WAV format
-      const wavBuffer = float32ArrayToWav(audioSamples, audioBuffer.sampleRate)
-
-      // Send to backend for transcription
-      if (window.electronAPI) {
-        await window.electronAPI.sendToBackend({
-          type: 'transcribe_audio',
-          audio_data: Array.from(new Uint8Array(wavBuffer)),
-          sample_rate: audioBuffer.sampleRate,
-        })
-      }
-    } catch (error) {
-      console.warn('⚠️ Error processing 1-second chunk:', error.message)
-    }
-  }
-
-  const startChunkedStreaming = () => {
-    if (!chunkingMediaRecorder.value || isStreamingChunks.value) return
-
-    try {
-      isStreamingChunks.value = true
-      // Start recording in 1-second chunks
-      chunkingMediaRecorder.value.start(1000) // 1000ms = 1 second
-      console.log('🎬 Started 1-second chunked streaming')
-    } catch (error) {
-      console.error('❌ Error starting chunked streaming:', error)
-      isStreamingChunks.value = false
-    }
-  }
-
-  const stopChunkedStreaming = () => {
-    if (!chunkingMediaRecorder.value || !isStreamingChunks.value) return
-
-    try {
-      if (chunkingMediaRecorder.value.state === 'recording') {
-        chunkingMediaRecorder.value.stop()
-      }
-      isStreamingChunks.value = false
-      console.log('🛑 Stopped 1-second chunked streaming')
-    } catch (error) {
-      console.error('❌ Error stopping chunked streaming:', error)
-    }
-  }
+  // Chunked streaming functions removed - using backend recording instead
 
   const initializeVAD = async () => {
     if (vadInstance.value || isVadInitializing.value) {
@@ -275,22 +261,28 @@ export function useAudioProcessing() {
 
       const vad_instance = await vad.MicVAD.new({
         onSpeechStart: () => {
+          // Only respond to VAD if we're actively recording
+          if (!isRecording.value || !isListening.value) {
+            return
+          }
+          
           isSpeechDetected.value = true
           lastVadActivityTime.value = Date.now()
-          console.log(
-            '🗣️ Speech started - beginning 1-second chunked streaming'
-          )
-          startChunkedStreaming()
+          console.log('🗣️ Speech started - VAD will process final audio')
         },
         onSpeechEnd: audio => {
+          // Only respond to VAD if we're actively recording
+          if (!isRecording.value || !isListening.value) {
+            return
+          }
+          
           console.log(`🔇 Speech ended: ${audio?.length} samples`)
           isSpeechDetected.value = false
 
-          // Stop chunked streaming and process final VAD chunk
-          stopChunkedStreaming()
-
-          if (isListening.value && audio && audio.length > 0) {
-            processAudioRecording(audio)
+          // Process the final VAD audio chunk which contains the complete speech segment
+          if (audio && audio.length > 0) {
+            // Processing complete VAD speech segment
+            processVADAudio(audio)
           }
         },
         // Use default model paths (will be loaded from node_modules)
@@ -342,21 +334,15 @@ export function useAudioProcessing() {
       mediaStream.value = null
     }
 
-    // Clean up 1-second chunked MediaRecorder
-    if (
-      chunkingMediaRecorder.value &&
-      chunkingMediaRecorder.value.state !== 'inactive'
-    ) {
-      chunkingMediaRecorder.value.stop()
-    }
-    chunkingMediaRecorder.value = null
-    isStreamingChunks.value = false
+    // MediaRecorder cleanup removed - using backend recording instead
 
     audioDataArray.value = null
   }
 
   const startRecording = async () => {
     if (isRecording.value) return
+
+    console.log('🎬 Starting recording - initializing audio and VAD')
 
     // Initialize audio context if needed
     if (!audioContext.value) {
@@ -369,41 +355,49 @@ export function useAudioProcessing() {
       }
     }
 
+    // Initialize VAD if needed
     if (!vadInstance.value) {
       await initializeVAD()
     }
 
+    // Start VAD and set recording state BEFORE starting VAD to prevent race conditions
+    isRecording.value = true
+    isListening.value = true
+
     if (vadInstance.value) {
       vadInstance.value.start()
-      isListening.value = true
+      console.log('✅ VAD started for recording session')
     }
 
     startWaveformVisualization()
-
-    isRecording.value = true
   }
 
   const stopRecording = async () => {
     if (!isRecording.value) return
 
-    // Stop any ongoing chunked streaming
-    stopChunkedStreaming()
+    console.log('🛑 Stopping recording - pausing VAD and cleaning up')
 
+    // Stop recording state FIRST to prevent VAD from processing during shutdown
+    isRecording.value = false
+    isListening.value = false
+    isSpeechDetected.value = false
+
+    // Pause VAD
     if (vadInstance.value) {
       vadInstance.value.pause()
-      isListening.value = false
+      console.log('✅ VAD paused for recording session')
     }
 
     stopWaveformVisualization()
 
+    // Send session completion message to backend
     if (window.electronAPI) {
       await window.electronAPI.sendToBackend({
         type: 'frontend_recording_stopped',
       })
     }
-
-    isRecording.value = false
-    isSpeechDetected.value = false
+    
+    console.log('🛑 Frontend recording stopped - session completion sent to backend')
   }
 
   const toggleRecording = async () => {

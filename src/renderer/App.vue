@@ -99,21 +99,19 @@ export default {
     watch(
       () => transcriptionStore.isRecording,
       (newIsRecording, oldIsRecording) => {
+        // Timer state watch triggered
         if (newIsRecording && !oldIsRecording) {
-          console.log('⏰ Starting timer - recording began')
+          // Starting timer - recording began
           startTimer()
         } else if (!newIsRecording && oldIsRecording) {
-          console.log('⏰ Stopping timer - recording ended')
+          // Stopping timer - recording ended
           stopTimer()
         }
       }
     )
 
     const handleToggleRecording = async () => {
-      console.log(
-        '🎤 Toggle recording clicked, current state:',
-        transcriptionStore.isRecording
-      )
+      // Toggle recording clicked
       await transcriptionStore.toggleRecording()
     }
 
@@ -135,10 +133,7 @@ export default {
     }
 
     const handleShowTranscript = () => {
-      console.log(
-        '📋 Show transcript clicked, current window state:',
-        transcriptWindowOpen.value
-      )
+      // Show transcript clicked
       if (window.electronAPI) {
         if (transcriptWindowOpen.value) {
           window.electronAPI.closeTranscript()

@@ -17,7 +17,8 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-# Audio capture now handled by frontend VAD
+# Audio capture imports
+from audio_capture import AudioCapture
 from transcription_engine import TranscriptionEngine
 from summarization_engine import SummarizationEngine
 from database import DatabaseManager
@@ -37,20 +38,32 @@ logger = logging.getLogger(__name__)
 
 # Global state
 active_connections: List[WebSocket] = []
+audio_capture: Optional[AudioCapture] = None
 transcription_engine: Optional[TranscriptionEngine] = None
 summarization_engine: Optional[SummarizationEngine] = None
 database: Optional[DatabaseManager] = None
 current_session_id: Optional[str] = None
 current_session_transcript = ""  # Track current session transcript for live sync
 is_recording = False  # Track recording state for frontend sync
+main_event_loop: Optional[asyncio.AbstractEventLoop] = None  # Store main loop reference
+
+# Audio buffering for transcription
+audio_buffer = bytearray()  # Accumulate audio chunks
+last_transcription_time = 0  # Track when we last sent audio to transcription
+MIN_AUDIO_DURATION = 1.0  # Minimum 1 second before transcription
+SAMPLE_RATE = 16000  # Audio sample rate
+is_speech_active = False  # Track if we're currently in a speech segment
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan management"""
-    global transcription_engine, summarization_engine, database
+    global transcription_engine, summarization_engine, database, audio_capture, main_event_loop
     
     # Startup
     logger.info("Starting EchoTap backend...")
+    
+    # Store reference to main event loop for audio callback
+    main_event_loop = asyncio.get_running_loop()
     
     # Initialize database
     app_data_dir = get_app_data_dir()
@@ -66,7 +79,14 @@ async def lifespan(app: FastAPI):
     # Initialize summarization engine
     summarization_engine = SummarizationEngine()
     
-    logger.info("EchoTap backend started successfully - audio handled by frontend")
+    # Initialize audio capture for backend recording
+    audio_capture = AudioCapture()
+    
+    # Audio capture initialized but callback disabled - using VAD-based transcription
+    # Backend will process complete speech segments from frontend VAD instead
+    logger.info("✅ Audio capture ready for VAD-based transcription")
+    
+    logger.info("EchoTap backend started successfully with audio capture support")
     
     yield
     
@@ -123,8 +143,21 @@ async def handle_frontend_audio(message: Dict):
         if not audio_data:
             logger.warning("No audio data received from frontend")
             return
-            
-        logger.info(f"🎤 Received audio from frontend: {len(audio_data)} bytes")
+        
+        # Handle both base64 string and byte array formats
+        if isinstance(audio_data, str):
+            # Base64 encoded data from frontend
+            import base64
+            try:
+                audio_bytes = base64.b64decode(audio_data)
+                logger.debug(f"Received base64 audio from frontend: {len(audio_bytes)} bytes")
+            except Exception as e:
+                logger.error(f"❌ Failed to decode base64 audio data: {e}")
+                return
+        else:
+            # Legacy byte array format
+            audio_bytes = bytes(audio_data)
+            logger.debug(f"Received audio from frontend: {len(audio_bytes)} bytes")
         
         # Create session if not exists
         if not current_session_id and database:
@@ -143,9 +176,6 @@ async def handle_frontend_audio(message: Dict):
                 "type": "recording_started",
                 "session_id": current_session_id
             })
-        
-        # Convert back to bytes
-        audio_bytes = bytes(audio_data)
         
         # Process with transcription engine
         if transcription_engine:
@@ -231,6 +261,198 @@ async def handle_frontend_audio(message: Dict):
 
 # Waveform is now handled by frontend - no backend waveform loop needed
 
+async def handle_start_recording(source: str = "microphone"):
+    """Handle start recording request from frontend"""
+    global is_recording, current_session_id, current_session_transcript, audio_capture
+    global audio_buffer, last_transcription_time
+    
+    if is_recording:
+        logger.info("Recording already in progress")
+        return
+    
+    try:
+        logger.info(f"🎬 Starting backend recording from {source}")
+        
+        # Clear audio buffer for new session
+        audio_buffer.clear()
+        last_transcription_time = 0
+        current_session_transcript = ""
+        
+        # Create new session
+        if database:
+            session_data = SessionData(
+                source=source,
+                model=transcription_engine.get_current_model() if transcription_engine else "unknown"
+            )
+            current_session_id = await database.create_session(session_data)
+            logger.info(f"🆔 Created new session: {current_session_id}")
+        
+        # Start audio capture
+        if audio_capture:
+            await audio_capture.start_recording()
+            is_recording = True
+            
+            await broadcast_message({
+                "type": "recording_started",
+                "session_id": current_session_id
+            })
+            logger.info("✅ Backend recording started successfully")
+        else:
+            logger.error("❌ Audio capture not available")
+            
+    except Exception as e:
+        logger.error(f"❌ Failed to start backend recording: {e}")
+
+async def handle_stop_recording():
+    """Handle stop recording request from frontend"""
+    global is_recording, current_session_id, audio_capture
+    global audio_buffer, last_transcription_time, SAMPLE_RATE
+    
+    if not is_recording:
+        logger.info("No recording in progress")
+        return
+        
+    try:
+        logger.info("🛑 Stopping backend recording")
+        
+        # Process any remaining buffered audio before stopping
+        if len(audio_buffer) > 0:
+            buffered_audio = bytes(audio_buffer)
+            buffer_duration = len(audio_buffer) / (SAMPLE_RATE * 2)
+            logger.debug(f"Processing final buffered audio: {len(buffered_audio)} bytes ({buffer_duration:.2f}s)")
+            await process_captured_audio(buffered_audio, SAMPLE_RATE, "microphone")
+            audio_buffer.clear()
+        
+        # Stop audio capture
+        if audio_capture:
+            await audio_capture.stop_recording()
+            
+        is_recording = False
+        session_id = current_session_id
+        
+        # Complete session in database
+        if database and current_session_id:
+            await database.complete_session(current_session_id)
+            
+            # Generate summary for the completed session
+            await generate_session_summary(current_session_id)
+        
+        # Reset session ID
+        current_session_id = None
+        
+        await broadcast_message({
+            "type": "recording_stopped", 
+            "session_id": session_id
+        })
+        
+        logger.info(f"✅ Backend recording stopped, session: {session_id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to stop backend recording: {e}")
+
+async def handle_audio_callback(audio_data: bytes, sample_rate: int, source: str):
+    """Handle audio data from audio capture system"""
+    global transcription_engine, current_session_id, current_session_transcript, main_event_loop
+    global audio_buffer, last_transcription_time, MIN_AUDIO_DURATION, SAMPLE_RATE
+    
+    if not is_recording or not current_session_id:
+        return
+    
+    try:
+        # Check if we're in the main event loop already
+        try:
+            current_loop = asyncio.get_running_loop()
+            if current_loop == main_event_loop:
+                # We're in the main loop, can call directly
+                await buffer_and_process_audio(audio_data, sample_rate, source)
+            else:
+                # We're in a different loop, schedule in main loop
+                if main_event_loop:
+                    asyncio.run_coroutine_threadsafe(
+                        buffer_and_process_audio(audio_data, sample_rate, source), 
+                        main_event_loop
+                    )
+        except RuntimeError:
+            # No current loop, schedule in main loop
+            if main_event_loop:
+                asyncio.run_coroutine_threadsafe(
+                    buffer_and_process_audio(audio_data, sample_rate, source), 
+                    main_event_loop
+                )
+    except Exception as e:
+        logger.error(f"❌ Error in audio callback: {e}")
+
+async def buffer_and_process_audio(audio_data: bytes, sample_rate: int, source: str):
+    """Process audio directly - VAD already handles speech detection"""
+    try:
+        # Skip tiny audio chunks that are likely noise
+        audio_duration = len(audio_data) / (sample_rate * 2)  # 2 bytes per sample (16-bit)
+        
+        if audio_duration < 0.5:  # Skip chunks smaller than 0.5 seconds
+            return
+            
+        logger.debug(f"Processing audio chunk: {len(audio_data)} bytes ({audio_duration:.2f}s) from {source}")
+        await process_captured_audio(audio_data, sample_rate, source)
+                
+    except Exception as e:
+        logger.error(f"❌ Error in audio processing: {e}")
+
+async def process_captured_audio(audio_data: bytes, sample_rate: int, source: str):
+    """Process captured audio data through transcription engine"""
+    global transcription_engine, current_session_id, current_session_transcript, database
+    
+    try:
+        if not transcription_engine or not current_session_id:
+            return
+            
+        # Process audio through transcription engine
+        result = await transcription_engine.process_wav_audio(audio_data, sample_rate, source)
+        
+        if result and result.get("text", "").strip():
+            # Send transcription result to frontend
+            timestamp_str = datetime.now().isoformat()
+            
+            partial_message = {
+                "type": "partial_transcript",
+                "text": result["text"],
+                "confidence": float(result.get("confidence", 0.0)),
+                "is_final": False,
+                "timestamp": timestamp_str,
+                "source": source
+            }
+            
+            final_message = {
+                "type": "final_transcript", 
+                "text": result["text"],
+                "confidence": float(result.get("confidence", 0.0)),
+                "is_final": True,
+                "timestamp": timestamp_str,
+                "source": source
+            }
+            
+            # Update session transcript
+            new_text = result["text"].strip()
+            if new_text:
+                # Simple append for backend recording (no overlap detection needed)
+                current_session_transcript += " " + new_text
+                logger.info(f"✅ Backend transcript: '{new_text[:50]}...'")
+            
+            await broadcast_message(partial_message)
+            await broadcast_message(final_message)
+            
+            # Save to database
+            if database and current_session_id:
+                await database.add_transcript_segment(
+                    session_id=current_session_id,
+                    text=result["text"],
+                    start_time=float(result.get("start_time", 0)),
+                    end_time=float(result.get("end_time", 0)),
+                    confidence=float(result.get("confidence", 0.0))
+                )
+                
+    except Exception as e:
+        logger.error(f"❌ Error processing captured audio: {e}")
+
 # Initialize FastAPI app
 app = FastAPI(
     title="EchoTap Backend",
@@ -286,6 +508,8 @@ async def handle_websocket_message(websocket: WebSocket, message: Dict):
         
         elif message_type == "frontend_recording_stopped":
             await handle_frontend_recording_stopped()
+            
+        # Backend recording handlers removed - using VAD-based transcription
                 
         elif message_type == "get_sessions":
             if database:

@@ -252,7 +252,7 @@ class TranscriptionEngine:
             if len(audio_np) == 0:
                 return None
             
-            logger.info(f"🎵 Processing WAV audio: {len(audio_np)} samples from {source}")
+            logger.debug(f"Processing WAV audio: {len(audio_np)} samples from {source}")
             
             # Apply source-specific preprocessing (similar to _process_audio_chunk)
             if source == "microphone":
@@ -261,16 +261,17 @@ class TranscriptionEngine:
                     audio_np = audio_np * (0.7 / max_val)
                     audio_np = np.sign(audio_np) * np.power(np.abs(audio_np), 0.8)
             
-            # Run transcription
+            # Run transcription with improved punctuation settings
             segments, info = self.model.transcribe(
                 audio_np,
                 beam_size=5,
-                temperature=0.0,
+                best_of=5,  # Multiple candidates for better quality
+                temperature=0.2,  # Slight temperature for natural punctuation
                 language=None,  # None for auto-detection
                 condition_on_previous_text=True,
                 vad_filter=True,
                 vad_parameters=dict(min_silence_duration_ms=300),
-                initial_prompt=self._get_context_prompt()
+                initial_prompt=self._get_punctuation_prompt()
             )
             
             # Collect segments
@@ -300,6 +301,12 @@ class TranscriptionEngine:
                 return None
             
             result_text = " ".join(full_text)
+            
+            # Clean up result text
+            if result_text:
+                result_text = self._filter_hallucinations(result_text, source)
+                result_text = self._format_transcript_text(result_text)
+                result_text = self._clean_repetitive_ending(result_text)
             
             # Update session transcript
             self.session_transcript.extend(text_segments)
@@ -425,7 +432,7 @@ class TranscriptionEngine:
             # Debug: log final audio characteristics before transcription
             audio_duration = len(audio_np) / sample_rate
             audio_rms = np.sqrt(np.mean(audio_np.astype(np.float32) ** 2))
-            logger.info(f"🎵 Pre-transcription audio: duration={audio_duration:.2f}s, RMS={audio_rms:.4f}, shape={audio_np.shape}, source={source}")
+            logger.debug(f"Pre-transcription audio: duration={audio_duration:.2f}s, RMS={audio_rms:.4f}, shape={audio_np.shape}, source={source}")
             
             # Use proper onnxruntime-based VAD in faster-whisper instead of custom RMS filtering
             
@@ -448,19 +455,19 @@ class TranscriptionEngine:
                     word_timestamps=False,
                 )
             else:
-                # Optimized transcription for microphone with large-v3-turbo model
+                # Optimized transcription for microphone with proper punctuation
                 segments, info = self.model.transcribe(
                     audio_np,
                     task="transcribe",  # Explicitly set to transcribe (not translate)
                     language=None,  # Force auto-detection for each chunk
-                    beam_size=1,  # Reduce beam size to prevent hallucinations
-                    best_of=1,    # Single best candidate to avoid confusion
-                    temperature=0.0,  # Zero temperature for deterministic results
-                    condition_on_previous_text=False,  # Completely disable context
-                    initial_prompt=None,  # Remove initial prompt to avoid bias
+                    beam_size=5,  # Increased for better punctuation
+                    best_of=5,    # Multiple candidates for better quality
+                    temperature=0.2,  # Slight temperature for natural punctuation
+                    condition_on_previous_text=True,  # Enable context for better punctuation
+                    initial_prompt="Hello! This is a conversation with proper punctuation, capitalization, and natural speech patterns.",  # Encourage proper formatting
                     vad_filter=True,   # Enable VAD using onnxruntime for proper speech boundaries
                     no_speech_threshold=0.5,      # With VAD enabled, can use standard threshold
-                    compression_ratio_threshold=1.5,  # Much lower to catch made-up content
+                    compression_ratio_threshold=2.4,  # Standard threshold for normal content
                     no_repeat_ngram_size=2,  # Prevent 2-gram repetitions
                     word_timestamps=False,
                 )
@@ -508,6 +515,8 @@ class TranscriptionEngine:
                 full_text = self._filter_hallucinations(full_text, source)
                 # Format text with proper punctuation and capitalization
                 full_text = self._format_transcript_text(full_text)
+                # Clean up repetitive endings (spam removal)
+                full_text = self._clean_repetitive_ending(full_text)
             
             if not full_text:
                 logger.info(f"🔍 No text detected in {source} audio chunk (duration: {len(audio_np)/sample_rate:.2f}s)")
@@ -515,7 +524,7 @@ class TranscriptionEngine:
                 
             # Filter out repetitive or low-quality transcriptions for system audio
             if source == "system_audio":
-                logger.info(f"🎵 System audio transcribed: '{full_text[:50]}...' (confidence: {info.language_probability:.2f})")
+                logger.debug(f"System audio transcribed: '{full_text[:50]}...' (confidence: {info.language_probability:.2f})")
                 
                 if self._is_repetitive_text(full_text):
                     logger.info(f"❌ Filtering repetitive system audio: '{full_text[:30]}...'")
@@ -526,7 +535,7 @@ class TranscriptionEngine:
                     
                 logger.info(f"✅ System audio passed filters: '{full_text[:50]}...'")
             else:
-                logger.info(f"🎤 Microphone transcribed: '{full_text[:50]}...' (confidence: {info.language_probability:.2f})")
+                logger.debug(f"Microphone transcribed: '{full_text[:50]}...' (confidence: {info.language_probability:.2f})")
                 
             # Determine if this is a partial or final result
             result_type = "final_transcript" if is_final else "partial_transcript"
@@ -662,6 +671,56 @@ class TranscriptionEngine:
         text = re.sub(r'\s+', ' ', text)
         
         return text.strip()
+    
+    def _clean_repetitive_ending(self, text: str) -> str:
+        """Remove repetitive spam from the end of transcripts"""
+        if len(text) < 100:
+            return text
+            
+        # Split into sentences
+        sentences = [s.strip() for s in text.split('.') if s.strip()]
+        if len(sentences) < 5:
+            return text
+            
+        # Look for repetitive pattern at the end
+        cleaned_sentences = []
+        seen_sentences = set()
+        repetitive_started = False
+        
+        for sentence in sentences:
+            sentence_lower = sentence.lower().strip()
+            
+            # If we haven't started seeing repetition yet
+            if not repetitive_started:
+                cleaned_sentences.append(sentence)
+                seen_sentences.add(sentence_lower)
+            else:
+                # Once repetition starts, only add if it's new
+                if sentence_lower not in seen_sentences:
+                    cleaned_sentences.append(sentence)
+                    seen_sentences.add(sentence_lower)
+            
+            # Check if current sentence indicates start of repetition
+            # (appears in previous sentences)
+            if not repetitive_started and sentence_lower in seen_sentences:
+                # Count how many times this pattern appears in remaining sentences
+                remaining_sentences = sentences[sentences.index(sentence):]
+                repeat_count = sum(1 for s in remaining_sentences if s.lower().strip() == sentence_lower)
+                
+                if repeat_count >= 3:  # Same sentence repeats 3+ times
+                    repetitive_started = True
+                    # Remove the current duplicate
+                    if cleaned_sentences and cleaned_sentences[-1].lower().strip() == sentence_lower:
+                        cleaned_sentences.pop()
+        
+        if cleaned_sentences:
+            cleaned_text = '. '.join(cleaned_sentences)
+            # Add final period if original had one
+            if text.rstrip().endswith('.'):
+                cleaned_text += '.'
+            return cleaned_text
+        
+        return text
             
     def _get_context_prompt(self) -> str:
         """Get context prompt from recent transcript"""
@@ -673,6 +732,17 @@ class TranscriptionEngine:
         context = " ".join([seg["text"] for seg in recent_segments])
         
         return context
+    
+    def _get_punctuation_prompt(self) -> str:
+        """Get enhanced prompt for proper punctuation and formatting"""
+        base_prompt = "Hello! This is a conversation with proper punctuation, capitalization, and natural speech patterns."
+        
+        # Add context if available
+        context = self._get_context_prompt()
+        if context:
+            return f"{base_prompt} Previous context: {context}"
+        
+        return base_prompt
         
     def _is_repetitive_text(self, text: str) -> bool:
         """Check if text is repetitive (like 'hey hey hey' or 'I'm so stupid' repeated)"""
@@ -717,18 +787,45 @@ class TranscriptionEngine:
         # Check if the text is mostly the same phrase repeated
         if len(text) > 50:  # Only for longer texts
             # Split into approximate sentences and check for repetition
-            sentences = text.split('.')
-            if len(sentences) > 2:
+            sentences = [s.strip() for s in text.split('.') if s.strip()]
+            if len(sentences) >= 3:
                 first_sentence = sentences[0].strip().lower()
                 if len(first_sentence) > 5:
-                    # Count how many sentences are very similar to the first
+                    # Count how many sentences are identical or very similar to the first
                     similar_count = 0
                     for sentence in sentences[1:]:
-                        sentence = sentence.strip().lower()
-                        if len(sentence) > 3 and first_sentence in sentence:
-                            similar_count += 1
-                    if similar_count >= 2:  # 3+ similar sentences
+                        sentence_lower = sentence.strip().lower()
+                        if len(sentence_lower) > 3:
+                            # Check for exact match or high similarity
+                            if (sentence_lower == first_sentence or 
+                                (len(sentence_lower) > 5 and first_sentence in sentence_lower)):
+                                similar_count += 1
+                    
+                    # If more than 50% of sentences are very similar, likely repetitive spam
+                    if similar_count >= max(2, len(sentences) // 2):
                         return True
+                        
+        # Enhanced check for exact phrase repetition patterns
+        if len(text) > 100:
+            # Look for patterns that repeat many times
+            words = text.split()
+            if len(words) > 20:  # Only for longer texts
+                # Check for repeated short phrases (2-10 words)
+                for phrase_len in range(2, min(11, len(words) // 5)):
+                    phrase_counts = {}
+                    for i in range(len(words) - phrase_len + 1):
+                        phrase = ' '.join(words[i:i + phrase_len]).lower()
+                        phrase_counts[phrase] = phrase_counts.get(phrase, 0) + 1
+                    
+                    # Find the most common phrase
+                    if phrase_counts:
+                        max_count = max(phrase_counts.values())
+                        if max_count >= 5:  # Phrase appears 5+ times
+                            # Check if this phrase dominates the text
+                            most_common_phrase = max(phrase_counts.keys(), key=phrase_counts.get)
+                            phrase_coverage = (max_count * len(most_common_phrase.split())) / len(words)
+                            if phrase_coverage > 0.3:  # Phrase covers >30% of words
+                                return True
                 
         return False
         
