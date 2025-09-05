@@ -81,18 +81,17 @@ jobs:
           cd backend
           python -m venv venv
           
-          # Activate virtual environment based on OS
+          # Activate virtual environment and install dependencies based on OS
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            source venv/Scripts/activate
+            # Windows: Use the venv python directly to avoid pip modification issues
+            venv/Scripts/python.exe -m pip install --upgrade pip wheel setuptools
+            venv/Scripts/python.exe -m pip install -r requirements-ci.txt --verbose
           else
+            # Unix systems: Use standard activation
             source venv/bin/activate
+            pip install --upgrade pip wheel setuptools
+            pip install -r requirements-ci.txt --verbose
           fi
-          
-          # Install build dependencies
-          pip install --upgrade pip wheel setuptools
-          
-          # Install core dependencies (excluding llama-cpp-python for CI)
-          pip install -r requirements-ci.txt --verbose
           
           echo "✅ Core Python dependencies installed successfully"
         shell: bash
@@ -106,24 +105,34 @@ jobs:
       - name: Validate Python Backend
         run: |
           cd backend
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            source venv/Scripts/activate
-          else
-            source venv/bin/activate
-          fi
           
           # Test basic imports (excluding summarization which needs llama-cpp-python)
-          python -c "
-          try:
-              import fastapi
-              import uvicorn
-              import numpy
-              import aiosqlite
-              print('✅ Core Python backend dependencies importable')
-          except ImportError as e:
-              print(f'❌ Import error: {e}')
-              exit(1)
-          "
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            venv/Scripts/python.exe -c "
+            try:
+                import fastapi
+                import uvicorn
+                import numpy
+                import aiosqlite
+                print('✅ Core Python backend dependencies importable')
+            except ImportError as e:
+                print(f'❌ Import error: {e}')
+                exit(1)
+            "
+          else
+            source venv/bin/activate
+            python -c "
+            try:
+                import fastapi
+                import uvicorn
+                import numpy
+                import aiosqlite
+                print('✅ Core Python backend dependencies importable')
+            except ImportError as e:
+                print(f'❌ Import error: {e}')
+                exit(1)
+            "
+          fi
         shell: bash
 
       - name: Validate Electron Configuration
