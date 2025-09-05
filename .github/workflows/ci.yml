@@ -109,29 +109,29 @@ jobs:
           # Test basic imports (excluding summarization which needs llama-cpp-python)
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             venv/Scripts/python.exe -c "
-            try:
-                import fastapi
-                import uvicorn
-                import numpy
-                import aiosqlite
-                print('✅ Core Python backend dependencies importable')
-            except ImportError as e:
-                print(f'❌ Import error: {e}')
-                exit(1)
-            "
+try:
+    import fastapi
+    import uvicorn  
+    import numpy
+    import aiosqlite
+    print('✅ Core Python backend dependencies importable')
+except ImportError as e:
+    print(f'❌ Import error: {e}')
+    exit(1)
+"
           else
             source venv/bin/activate
             python -c "
-            try:
-                import fastapi
-                import uvicorn
-                import numpy
-                import aiosqlite
-                print('✅ Core Python backend dependencies importable')
-            except ImportError as e:
-                print(f'❌ Import error: {e}')
-                exit(1)
-            "
+try:
+    import fastapi
+    import uvicorn
+    import numpy
+    import aiosqlite
+    print('✅ Core Python backend dependencies importable')
+except ImportError as e:
+    print(f'❌ Import error: {e}')
+    exit(1)
+"
           fi
         shell: bash
 
