@@ -5,7 +5,6 @@ Provides automatic translation functionality for transcripts and summaries
 import asyncio
 import logging
 import os
-import re
 import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -79,8 +78,8 @@ class TranslationEngine:
             'lt': 'Lithuanian'
         }
         
-        self._initialize()
         
+        self._initialize()
     def _initialize(self):
         """Initialize the translation engine"""
         try:
@@ -167,7 +166,7 @@ class TranslationEngine:
             # Run in thread to avoid blocking
             loop = asyncio.get_event_loop()
             translation_result = await loop.run_in_executor(
-                None, self._translate_text_sync, text, target_lang_name, source_language
+                None, self._translate_text_sync, text, target_language, source_language
             )
             
             return translation_result
@@ -185,16 +184,18 @@ class TranslationEngine:
                 
                 start_time = datetime.now()
                 
-                # Generate translation
+                # Generate translation with balanced parameters
                 response = self.model(
                     prompt,
                     max_tokens=self.max_tokens,
-                    temperature=0.1,  # Very low temperature for consistent translations
-                    top_p=0.9,
-                    repeat_penalty=1.1,
-                    stop=["\n\nTranslate", "\n\nOriginal", "\nTranslation:", "Translation:"],  # Simple stop tokens
+                    temperature=self.temperature,
+                    top_p=self.top_p,
+                    repeat_penalty=self.repeat_penalty,
+                    stop=["<|end_of_turn|>"],
                     echo=False,
-                    stream=False
+                    stream=False,
+                    top_k=40,
+                    min_p=0.05
                 )
                 
                 logger.info(f"Model response received, choices: {len(response.get('choices', []))}")
@@ -206,11 +207,11 @@ class TranslationEngine:
                 raw_translation = response['choices'][0]['text'].strip()
                 logger.info(f"Raw output: {len(raw_translation)} chars")
                 
-                # Clean up the translation
-                translated_text = self._clean_translation(raw_translation)
+                # Use raw translation directly
+                translated_text = raw_translation.strip()
                 
                 if not translated_text.strip():
-                    logger.error(f"Empty translation after cleanup. Raw: '{raw_translation[:200]}...'")
+                    logger.error(f"Empty translation. Raw was: '{raw_translation}'")
                     return None
                     
                 logger.info(f"Translation generated: {len(translated_text)} chars to {target_language} in {generation_time:.2f}s")
@@ -238,12 +239,10 @@ class TranslationEngine:
                 
     def _build_translation_prompt(self, text: str, target_language: str, source_language: str) -> str:
         """Build the prompt for translation"""
-        # Clean up the text before translation to avoid model issues
-        text = text.replace('**', '').replace('##', '').replace('***', '')
-        text = text.replace('- ', '').replace('* ', '').strip()
+        # Use Gemma's instruction format for better translation quality
         
         # Limit the input text to avoid context overflow
-        max_input_length = 1800  # Reduced to leave more room for response
+        max_input_length = 1600  # Leave more room for response
         
         original_length = len(text)
         if len(text) > max_input_length:
@@ -254,45 +253,19 @@ class TranslationEngine:
                 text = text[:last_period + 1]
             logger.info(f"Text truncated from {original_length} to {len(text)} chars")
             
-        # Simplified, direct prompt without conversation format
-        prompt = f"Translate this {source_language} text to {target_language}:\n\n{text}\n\nTranslation:"
+        # Use a clear instruction format that works well with Gemma for translation
+        target_lang_name = self.language_names.get(target_language.lower(), target_language)
+        source_lang_name = self.language_names.get(source_language.lower(), source_language) if source_language != "English" else "English"
+        prompt = f"""<|start_of_turn|>user
+        Translate the following text from {source_lang_name} to {target_lang_name}. Provide only the translation without any additional explanation or commentary:
+
+        Text: "{text}"<|end_of_turn|>
+        <|start_of_turn|>model"""
         
         logger.info(f"Translation prompt: {len(prompt)} chars, target={target_language}")
         
         return prompt
         
-    def _clean_translation(self, translation_text: str) -> str:
-        """Clean up the generated translation - simplified approach"""
-        if not translation_text:
-            return ""
-            
-        # Basic cleanup only
-        translation_text = translation_text.strip()
-        
-        # Remove obvious artifacts
-        translation_text = re.sub(r'\|start_of_turn\|', '', translation_text)
-        translation_text = re.sub(r'\|end_of_turn\|', '', translation_text)
-        translation_text = re.sub(r'<\|.*?\|>', '', translation_text)
-        
-        # Remove common prefixes that models add
-        prefixes = [
-            "Here is the translation:",
-            "Translation:",
-            "Here's the translation:",
-            "Ось переклад на українську мову:",
-            "Ось переклад:",
-        ]
-        
-        for prefix in prefixes:
-            if translation_text.startswith(prefix):
-                translation_text = translation_text[len(prefix):].strip()
-                break
-        
-        # Basic whitespace cleanup
-        translation_text = re.sub(r'\n\n\n+', '\n\n', translation_text)
-        translation_text = translation_text.strip()
-        
-        return translation_text
     
     async def translate_session_content(
         self, 
@@ -314,7 +287,7 @@ class TranslationEngine:
             translated_summary = None
             summary_generation_time = 0
             if summary_text and summary_text.strip():
-                logger.info(f"Translating summary ({len(summary_text)} chars)")
+                logger.info(f"Translating summary(session) ({len(summary_text)} chars)")
                 summary_result = await self.translate_text(summary_text, target_language)
                 if summary_result and summary_result['translated_text'].strip():
                     translated_summary = summary_result['translated_text']
