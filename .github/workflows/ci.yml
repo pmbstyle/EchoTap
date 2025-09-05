@@ -108,35 +108,15 @@ jobs:
           
           # Test basic imports (excluding summarization which needs llama-cpp-python)
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            venv/Scripts/python.exe -c "
-try:
-    import fastapi
-    import uvicorn  
-    import numpy
-    import aiosqlite
-    print('✅ Core Python backend dependencies importable')
-except ImportError as e:
-    print(f'❌ Import error: {e}')
-    exit(1)
-"
+            venv/Scripts/python.exe -c "import fastapi, uvicorn, numpy, aiosqlite; print('Core Python backend dependencies importable')"
           else
             source venv/bin/activate
-            python -c "
-try:
-    import fastapi
-    import uvicorn
-    import numpy
-    import aiosqlite
-    print('✅ Core Python backend dependencies importable')
-except ImportError as e:
-    print(f'❌ Import error: {e}')
-    exit(1)
-"
+            python -c "import fastapi, uvicorn, numpy, aiosqlite; print('Core Python backend dependencies importable')"
           fi
         shell: bash
 
       - name: Validate Electron Configuration
         run: |
-          node -e "console.log('✅ Main entry point exists:', require('fs').existsSync('src/main/main.js'))"
-          node -e "const pkg = require('./package.json'); console.log('✅ Package.json main:', pkg.main)"
-          node -e "console.log('✅ Build config valid:', !!require('./package.json').build)"
+          node -e "console.log('Main entry point exists:', require('fs').existsSync('src/main/main.js'))"
+          node -e "const pkg = require('./package.json'); console.log('Package.json main:', pkg.main)"
+          node -e "console.log('Build config valid:', !!require('./package.json').build)"
