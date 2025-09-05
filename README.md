@@ -2,6 +2,9 @@
 <img width="50%" src="https://github.com/user-attachments/assets/630c284e-f642-48f5-b46e-11276dc3799c" />
 </p>
 
+## EchoTap (WORK IN PROGRESS)
+
+
 Real-time desktop transcription app that converts speech from any audio source into text locally on your machine.
 
 ## What it does
