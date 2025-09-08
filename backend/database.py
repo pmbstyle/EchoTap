@@ -582,11 +582,11 @@ class DatabaseManager:
                     FROM transcript_segments ts 
                     WHERE ts.session_id = s.id
                 ) as segment_count,
-                ss.summary,
                 ss.summary_words,
                 ss.compression_ratio,
                 ss.generation_time,
-                ss.model as summary_model
+                ss.model as summary_model,
+                CASE WHEN ss.summary IS NOT NULL THEN 1 ELSE 0 END as has_summary
             FROM sessions s
             LEFT JOIN session_summaries ss ON s.id = ss.session_id
             WHERE s.completed_at IS NOT NULL
@@ -611,12 +611,11 @@ class DatabaseManager:
                 "word_count": row['word_count'] or 0,
                 "segment_count": row['segment_count'] or 0,
                 "average_confidence": row['average_confidence'] or 0.0,
-                "summary": row['summary'],
                 "summary_words": row['summary_words'],
                 "compression_ratio": row['compression_ratio'],
                 "generation_time": row['generation_time'],
                 "summary_model": row['summary_model'],
-                "has_summary": row['summary'] is not None
+                "has_summary": bool(row['has_summary'])
             })
             
         return sessions

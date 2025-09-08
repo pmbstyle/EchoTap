@@ -1,31 +1,49 @@
+# Core FastAPI dependencies
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 websockets==12.0
-numpy>=1.24.0
-soundfile>=0.12.0
-webrtcvad>=2.0.10
-faster-whisper>=0.9.0
-# sqlite3 is built into Python
-aiosqlite>=0.19.0
 pydantic>=2.5.0
 python-multipart>=0.0.6
 
-# Audio capture dependencies
-pyaudio>=0.2.11
-pyaudiowpatch>=0.2.12.6; sys_platform == "win32"
+# Audio processing - optimized for cross-platform
+numpy>=1.24.0
+soundfile>=0.12.0
+aiosqlite>=0.19.0
 
-# PyTorch for device detection (optional but recommended)
-torch>=2.0.0
+# Cross-platform audio dependencies
+sounddevice>=0.4.6
+librosa>=0.10.0
+
+# Whisper and VAD
+faster-whisper>=0.9.0
+webrtcvad>=2.0.10
+
+# LLM dependencies  
+llama-cpp-python>=0.3.0
+requests>=2.31.0
+
+# System resource detection
+psutil>=5.9.0
+
+# Platform-specific audio enhancements
+pyaudio>=0.2.11; python_version>="3.8"
+pyaudiowpatch>=0.2.12.6; sys_platform == "win32"
 
 # Windows-specific
 pywin32>=306; sys_platform == "win32"
 comtypes>=1.1.14; sys_platform == "win32"
 
-# macOS-specific (PyAudio handles Core Audio integration)
+# macOS-specific
+pyobjc-framework-AVFoundation>=9.0; sys_platform == "darwin"
+pyobjc-framework-CoreAudio>=9.0; sys_platform == "darwin"
 
 # Linux-specific
 pulsectl>=22.3.2; sys_platform == "linux"
 
-# Summarization dependencies
-llama-cpp-python>=0.2.11
-requests>=2.31.0
+# Optional: PyTorch for GPU acceleration (CPU-only by default)
+# torch>=2.0.0; extra == "gpu"
+
+# Testing dependencies
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+httpx>=0.24.0  # For async client testing

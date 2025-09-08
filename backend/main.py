@@ -6,12 +6,13 @@ import json
 import logging
 import os
 import sys
+from collections import deque
 from datetime import datetime
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -41,28 +42,138 @@ from models import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Global state
-active_connections: List[WebSocket] = []
+# Resource Manager for proper cleanup and memory management
+class ResourceManager:
+    """Manages application resources and prevents memory leaks"""
+    
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+        self.audio_buffer = deque(maxlen=100)  # Bounded buffer (max 100 chunks)
+        self.current_session_id: Optional[str] = None
+        self.current_session_transcript = ""
+        self.is_recording = False
+        self.is_speech_active = False
+        self.last_transcription_time = 0
+        
+        # Constants
+        self.MIN_AUDIO_DURATION = 1.0
+        self.SAMPLE_RATE = 16000
+        self.MAX_SESSION_DURATION = 3600  # 1 hour max session
+        
+        # Session tracking for cleanup
+        self.session_start_time: Optional[float] = None
+        self.last_cleanup_time = 0
+        self.CLEANUP_INTERVAL = 300  # Cleanup every 5 minutes
+    
+    def add_connection(self, connection: WebSocket) -> None:
+        """Add a WebSocket connection"""
+        self.active_connections.append(connection)
+        logger.info(f"Client connected. Total connections: {len(self.active_connections)}")
+    
+    def remove_connection(self, connection: WebSocket) -> None:
+        """Remove a WebSocket connection"""
+        if connection in self.active_connections:
+            self.active_connections.remove(connection)
+        logger.info(f"Client removed. Total connections: {len(self.active_connections)}")
+    
+    def start_session(self, session_id: str) -> None:
+        """Start a new session with proper cleanup of previous session"""
+        # Cleanup previous session
+        self.cleanup_session()
+        
+        self.current_session_id = session_id
+        self.current_session_transcript = ""
+        self.is_recording = True
+        self.session_start_time = time.time()
+        self.audio_buffer.clear()
+        self.last_transcription_time = 0
+        
+        logger.info(f"Started new session: {session_id}")
+    
+    def end_session(self) -> str:
+        """End current session and return session ID"""
+        session_id = self.current_session_id
+        self.cleanup_session()
+        logger.info(f"Ended session: {session_id}")
+        return session_id
+    
+    def cleanup_session(self) -> None:
+        """Clean up current session resources"""
+        self.current_session_id = None
+        self.current_session_transcript = ""
+        self.is_recording = False
+        self.is_speech_active = False
+        self.session_start_time = None
+        self.audio_buffer.clear()
+        
+        # Force garbage collection
+        import gc
+        gc.collect()
+    
+    def should_cleanup(self) -> bool:
+        """Check if periodic cleanup is needed"""
+        current_time = time.time()
+        return (current_time - self.last_cleanup_time) > self.CLEANUP_INTERVAL
+    
+    def periodic_cleanup(self) -> None:
+        """Perform periodic cleanup to prevent memory leaks"""
+        try:
+            current_time = time.time()
+            
+            # Check for overly long sessions
+            if self.session_start_time and (current_time - self.session_start_time) > self.MAX_SESSION_DURATION:
+                logger.warning("Session exceeded maximum duration, forcing cleanup")
+                self.cleanup_session()
+            
+            # Clear old audio buffer chunks
+            if len(self.audio_buffer) > 50:  # Keep only recent chunks
+                while len(self.audio_buffer) > 25:
+                    self.audio_buffer.popleft()
+                logger.info("Cleaned up old audio buffer chunks")
+            
+            # Update cleanup time
+            self.last_cleanup_time = current_time
+            
+            # Force garbage collection
+            import gc
+            gc.collect()
+            
+            logger.debug("Performed periodic resource cleanup")
+            
+        except Exception as e:
+            logger.error(f"Error during periodic cleanup: {e}")
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get resource usage statistics"""
+        return {
+            "active_connections": len(self.active_connections),
+            "current_session_id": self.current_session_id,
+            "is_recording": self.is_recording,
+            "audio_buffer_size": len(self.audio_buffer),
+            "session_transcript_length": len(self.current_session_transcript),
+            "session_duration": time.time() - self.session_start_time if self.session_start_time else 0
+        }
+
+# Global resource manager instance
+resource_manager = ResourceManager()
+
+# Legacy global variables for backwards compatibility (will be phased out)
+active_connections = resource_manager.active_connections
 audio_capture: Optional[AudioCapture] = None
 transcription_engine: Optional[TranscriptionEngine] = None
 summarization_engine: Optional[SummarizationEngine] = None
 translation_engine: Optional[TranslationEngine] = None
 database: Optional[DatabaseManager] = None
-current_session_id: Optional[str] = None
-current_session_transcript = ""  # Track current session transcript for live sync
-is_recording = False  # Track recording state for frontend sync
-main_event_loop: Optional[asyncio.AbstractEventLoop] = None  # Store main loop reference
+main_event_loop: Optional[asyncio.AbstractEventLoop] = None
 
-# Audio buffering for transcription
-audio_buffer = bytearray()  # Accumulate audio chunks
-last_transcription_time = 0  # Track when we last sent audio to transcription
-MIN_AUDIO_DURATION = 1.0  # Minimum 1 second before transcription
-SAMPLE_RATE = 16000  # Audio sample rate
-is_speech_active = False  # Track if we're currently in a speech segment
+# Session state variables
+is_recording: bool = False
+current_session_id: Optional[str] = None
+current_session_transcript: str = ""
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan management"""
+    """Application lifespan management with proper resource cleanup"""
     global transcription_engine, summarization_engine, translation_engine, database, audio_capture, main_event_loop
     
     # Startup
@@ -91,27 +202,79 @@ async def lifespan(app: FastAPI):
     # Initialize audio capture for backend recording
     audio_capture = AudioCapture()
     
-    # Audio capture initialized but callback disabled - using VAD-based transcription
-    # Backend will process complete speech segments from frontend VAD instead
     logger.info("✅ Audio capture ready for VAD-based transcription")
-    
     logger.info("EchoTap backend started successfully with audio capture support")
+    
+    # Start periodic cleanup task
+    cleanup_task = asyncio.create_task(periodic_cleanup_task())
     
     yield
     
     # Shutdown
     logger.info("Shutting down EchoTap backend...")
     
+    # Cancel cleanup task
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
+    
+    # Cleanup active sessions
+    resource_manager.cleanup_session()
+    
+    # Cleanup engines with proper resource management
     if database:
-        await database.close()
+        try:
+            await database.close()
+        except Exception as e:
+            logger.error(f"Error closing database: {e}")
         
     if summarization_engine:
-        summarization_engine.cleanup()
+        try:
+            summarization_engine.cleanup()
+        except Exception as e:
+            logger.error(f"Error cleaning up summarization engine: {e}")
         
     if translation_engine:
-        translation_engine.cleanup()
+        try:
+            translation_engine.cleanup()
+        except Exception as e:
+            logger.error(f"Error cleaning up translation engine: {e}")
+    
+    if transcription_engine:
+        try:
+            # Clean up transcription engine resources
+            if hasattr(transcription_engine, 'cleanup'):
+                transcription_engine.cleanup()
+        except Exception as e:
+            logger.error(f"Error cleaning up transcription engine: {e}")
+    
+    if audio_capture:
+        try:
+            # Stop any active recording
+            if hasattr(audio_capture, 'stop_recording'):
+                await audio_capture.stop_recording()
+        except Exception as e:
+            logger.error(f"Error stopping audio capture: {e}")
         
+    # Final garbage collection
+    import gc
+    gc.collect()
+    
     logger.info("EchoTap backend shutdown complete")
+
+async def periodic_cleanup_task():
+    """Background task for periodic resource cleanup"""
+    while True:
+        try:
+            await asyncio.sleep(300)  # Run every 5 minutes
+            if resource_manager.should_cleanup():
+                resource_manager.periodic_cleanup()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error in periodic cleanup task: {e}")
 
 def get_app_data_dir() -> Path:
     """Get application data directory based on platform"""
@@ -271,199 +434,15 @@ async def handle_frontend_audio(message: Dict):
     except Exception as e:
         logger.error(f"Error handling frontend audio: {e}")
 
-# Waveform is now handled by frontend - no backend waveform loop needed
+# Legacy backend recording functions removed - now using VAD-based transcription
 
-async def handle_start_recording(source: str = "microphone"):
-    """Handle start recording request from frontend"""
-    global is_recording, current_session_id, current_session_transcript, audio_capture
-    global audio_buffer, last_transcription_time
-    
-    if is_recording:
-        logger.info("Recording already in progress")
-        return
-    
-    try:
-        logger.info(f"🎬 Starting backend recording from {source}")
-        
-        # Clear audio buffer for new session
-        audio_buffer.clear()
-        last_transcription_time = 0
-        current_session_transcript = ""
-        
-        # Create new session
-        if database:
-            session_data = SessionData(
-                source=source,
-                model=transcription_engine.get_current_model() if transcription_engine else "unknown"
-            )
-            current_session_id = await database.create_session(session_data)
-            logger.info(f"🆔 Created new session: {current_session_id}")
-        
-        # Start audio capture
-        if audio_capture:
-            await audio_capture.start_recording()
-            is_recording = True
-            
-            await broadcast_message({
-                "type": "recording_started",
-                "session_id": current_session_id
-            })
-            logger.info("✅ Backend recording started successfully")
-        else:
-            logger.error("❌ Audio capture not available")
-            
-    except Exception as e:
-        logger.error(f"❌ Failed to start backend recording: {e}")
+# Legacy stop recording function removed
 
-async def handle_stop_recording():
-    """Handle stop recording request from frontend"""
-    global is_recording, current_session_id, audio_capture
-    global audio_buffer, last_transcription_time, SAMPLE_RATE
-    
-    if not is_recording:
-        logger.info("No recording in progress")
-        return
-        
-    try:
-        logger.info("🛑 Stopping backend recording")
-        
-        # Process any remaining buffered audio before stopping
-        if len(audio_buffer) > 0:
-            buffered_audio = bytes(audio_buffer)
-            buffer_duration = len(audio_buffer) / (SAMPLE_RATE * 2)
-            logger.debug(f"Processing final buffered audio: {len(buffered_audio)} bytes ({buffer_duration:.2f}s)")
-            await process_captured_audio(buffered_audio, SAMPLE_RATE, "microphone")
-            audio_buffer.clear()
-        
-        # Stop audio capture
-        if audio_capture:
-            await audio_capture.stop_recording()
-            
-        is_recording = False
-        session_id = current_session_id
-        
-        # Complete session in database
-        if database and current_session_id:
-            await database.complete_session(current_session_id)
-            
-            # Generate summary for the completed session
-            await generate_session_summary(current_session_id)
-        
-        # Reset session ID
-        current_session_id = None
-        
-        await broadcast_message({
-            "type": "recording_stopped", 
-            "session_id": session_id
-        })
-        
-        logger.info(f"✅ Backend recording stopped, session: {session_id}")
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to stop backend recording: {e}")
+# Legacy audio callback removed - using frontend VAD
 
-async def handle_audio_callback(audio_data: bytes, sample_rate: int, source: str):
-    """Handle audio data from audio capture system"""
-    global transcription_engine, current_session_id, current_session_transcript, main_event_loop
-    global audio_buffer, last_transcription_time, MIN_AUDIO_DURATION, SAMPLE_RATE
-    
-    if not is_recording or not current_session_id:
-        return
-    
-    try:
-        # Check if we're in the main event loop already
-        try:
-            current_loop = asyncio.get_running_loop()
-            if current_loop == main_event_loop:
-                # We're in the main loop, can call directly
-                await buffer_and_process_audio(audio_data, sample_rate, source)
-            else:
-                # We're in a different loop, schedule in main loop
-                if main_event_loop:
-                    asyncio.run_coroutine_threadsafe(
-                        buffer_and_process_audio(audio_data, sample_rate, source), 
-                        main_event_loop
-                    )
-        except RuntimeError:
-            # No current loop, schedule in main loop
-            if main_event_loop:
-                asyncio.run_coroutine_threadsafe(
-                    buffer_and_process_audio(audio_data, sample_rate, source), 
-                    main_event_loop
-                )
-    except Exception as e:
-        logger.error(f"❌ Error in audio callback: {e}")
+# Legacy buffer and process audio removed
 
-async def buffer_and_process_audio(audio_data: bytes, sample_rate: int, source: str):
-    """Process audio directly - VAD already handles speech detection"""
-    try:
-        # Skip tiny audio chunks that are likely noise
-        audio_duration = len(audio_data) / (sample_rate * 2)  # 2 bytes per sample (16-bit)
-        
-        if audio_duration < 0.5:  # Skip chunks smaller than 0.5 seconds
-            return
-            
-        logger.debug(f"Processing audio chunk: {len(audio_data)} bytes ({audio_duration:.2f}s) from {source}")
-        await process_captured_audio(audio_data, sample_rate, source)
-                
-    except Exception as e:
-        logger.error(f"❌ Error in audio processing: {e}")
-
-async def process_captured_audio(audio_data: bytes, sample_rate: int, source: str):
-    """Process captured audio data through transcription engine"""
-    global transcription_engine, current_session_id, current_session_transcript, database
-    
-    try:
-        if not transcription_engine or not current_session_id:
-            return
-            
-        # Process audio through transcription engine
-        result = await transcription_engine.process_wav_audio(audio_data, sample_rate, source)
-        
-        if result and result.get("text", "").strip():
-            # Send transcription result to frontend
-            timestamp_str = datetime.now().isoformat()
-            
-            partial_message = {
-                "type": "partial_transcript",
-                "text": result["text"],
-                "confidence": float(result.get("confidence", 0.0)),
-                "is_final": False,
-                "timestamp": timestamp_str,
-                "source": source
-            }
-            
-            final_message = {
-                "type": "final_transcript", 
-                "text": result["text"],
-                "confidence": float(result.get("confidence", 0.0)),
-                "is_final": True,
-                "timestamp": timestamp_str,
-                "source": source
-            }
-            
-            # Update session transcript
-            new_text = result["text"].strip()
-            if new_text:
-                # Simple append for backend recording (no overlap detection needed)
-                current_session_transcript += " " + new_text
-                logger.info(f"✅ Backend transcript: '{new_text[:50]}...'")
-            
-            await broadcast_message(partial_message)
-            await broadcast_message(final_message)
-            
-            # Save to database
-            if database and current_session_id:
-                await database.add_transcript_segment(
-                    session_id=current_session_id,
-                    text=result["text"],
-                    start_time=float(result.get("start_time", 0)),
-                    end_time=float(result.get("end_time", 0)),
-                    confidence=float(result.get("confidence", 0.0))
-                )
-                
-    except Exception as e:
-        logger.error(f"❌ Error processing captured audio: {e}")
+# Legacy process captured audio removed
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -521,7 +500,7 @@ async def handle_websocket_message(websocket: WebSocket, message: Dict):
         elif message_type == "frontend_recording_stopped":
             await handle_frontend_recording_stopped()
             
-        # Backend recording handlers removed - using VAD-based transcription
+        # Note: Backend recording handlers removed - using efficient VAD-based transcription
                 
         elif message_type == "get_sessions":
             if database:
@@ -535,6 +514,9 @@ async def handle_websocket_message(websocket: WebSocket, message: Dict):
             session_id = message.get("session_id")
             if database and session_id:
                 transcript = await database.get_session_transcript(session_id)
+                logger.info(f"🔍 Sending transcript for session {session_id}: {len(transcript.get('full_text', '') if transcript else 'None')} chars")
+                if transcript:
+                    logger.info(f"   Transcript preview: {transcript.get('full_text', '')[:80]}...")
                 await websocket.send_text(json.dumps({
                     "type": "session_transcript",
                     "session_id": session_id,
@@ -599,6 +581,9 @@ async def handle_websocket_message(websocket: WebSocket, message: Dict):
             session_id = message.get("session_id")
             if database and session_id:
                 summary = await database.get_session_summary(session_id)
+                logger.info(f"📋 Sending summary for session {session_id}: {len(summary.get('summary', '') if summary else 'None')} chars")
+                if summary:
+                    logger.info(f"   Summary preview: {summary.get('summary', '')[:80]}...")
                 await websocket.send_text(json.dumps({
                     "type": "session_summary",
                     "session_id": session_id,
@@ -835,8 +820,9 @@ async def translate_session_content(session_id: str, target_language: str) -> bo
         translation_result = await translation_engine.translate_session_content(
             full_text, summary_text, target_language
         )
-        if not translation_result:
-            logger.warning(f"Failed to translate session {session_id} to {target_language}")
+        if not translation_result or translation_result.get("error"):
+            error_msg = translation_result.get("error") if translation_result else "unknown error"
+            logger.warning(f"Failed to translate session {session_id} to {target_language}: {error_msg}")
             return False
             
         # Save translation to database
@@ -861,7 +847,7 @@ async def translate_session_content(session_id: str, target_language: str) -> bo
         logger.error(f"Error translating session {session_id} to {target_language}: {e}")
         return False
 
-# Recording is now handled by frontend VAD - backend only processes transcription
+# All legacy backend recording code removed - now using efficient frontend VAD
 
 @app.get("/health")
 async def health_check():

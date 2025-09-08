@@ -40,8 +40,8 @@
           <button
             v-if="currentView === 'detail' && selectedSession"
             class="w-8 h-8 rounded-full border-0 bg-transparent text-gray-600 dark:text-gray-400 flex items-center justify-center cursor-pointer transition-all duration-200 hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white"
-            @click="copyTranscript"
-            :title="`Copy ${activeTab === 'summary' ? 'summary' : 'transcript'} (Ctrl+C)`"
+            @click="copyCurrentContent"
+            title="Copy content (Ctrl+C)"
           >
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
               <path
@@ -62,480 +62,120 @@
           </button>
         </div>
       </div>
-      <template v-if="currentView === 'list'">
-        <!-- Search bar (only shown in list view) -->
-        <div
-          class="p-4 border-b border-gray-200 dark:border-gray-700"
-          style="-webkit-app-region: no-drag"
-        >
-          <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="Search transcripts..."
-            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white/80 dark:bg-gray-700/80 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-blue-500 dark:focus:border-blue-400"
-          />
+
+      <!-- Main Content -->
+      <div class="flex-1 flex flex-col overflow-hidden" style="-webkit-app-region: no-drag">
+        <!-- List View -->
+        <SessionList
+          v-if="currentView === 'list'"
+          :sessions="sessions"
+          @view-session="viewSession"
+          @copy-session="copySession"
+          @delete-session="deleteSession"
+        />
+
+        <!-- Detail View -->
+        <div v-if="currentView === 'detail' && selectedSession" class="flex-1 flex flex-col overflow-hidden">
+          <SessionDetail
+            ref="sessionDetail"
+            :session="selectedSession"
+            :summary-generating="summaryGenerating"
+            :current-translation="currentTranslation"
+            :selected-language="selectedLanguage"
+            :show-original="showOriginal"
+            :supported-languages="supportedLanguages"
+            @generate-summary="generateSummary"
+            @regenerate-summary="regenerateSummary"
+            @update:show-original="showOriginal = $event"
+            @translate="handleTranslationFromTab"
+          >
+            <template #transcript-actions>
+              <!-- Translation controls for transcript tab -->
+              <TranslationControls
+                :selected-language="selectedLanguage"
+                :supported-languages="supportedLanguages"
+                :is-translating="translationGenerating"
+                @update:selected-language="onLanguageChange"
+                @translate="handleTranslate"
+              />
+            </template>
+            <template #summary-actions>
+              <!-- Translation controls for summary tab -->
+              <TranslationControls
+                :selected-language="selectedLanguage"
+                :supported-languages="supportedLanguages"
+                :is-translating="translationGenerating"
+                @update:selected-language="onLanguageChange"
+                @translate="handleTranslate"
+              />
+            </template>
+          </SessionDetail>
         </div>
-
-        <!-- Content -->
-        <div
-          class="flex-1 flex flex-col overflow-hidden relative"
-          style="-webkit-app-region: no-drag"
-        >
-          <!-- List View -->
-          <div class="flex-1 overflow-y-auto p-3">
-            <div
-              v-for="session in filteredSessions"
-              :key="session.id"
-              class="flex items-center justify-between p-4 rounded-lg cursor-pointer transition-colors duration-200 hover:bg-gray-100 dark:hover:bg-white/8 mb-2"
-              @click="viewSession(session)"
-            >
-              <div class="flex-1 min-w-0">
-                <div
-                  class="font-medium text-gray-900 dark:text-white text-sm mb-1"
-                >
-                  {{ formatDate(session.created_at) }}
-                </div>
-                <div
-                  class="text-xs text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-2"
-                >
-                  <span
-                    >{{ session.source }} •
-                    {{ formatDuration(session.duration) }} min</span
-                  >
-                  <div
-                    v-if="session.has_summary"
-                    class="w-1.5 h-1.5 bg-blue-500 rounded-full"
-                    title="Summary available"
-                  ></div>
-                </div>
-                <div class="text-sm text-gray-600 dark:text-gray-400 truncate">
-                  {{ getPreviewText(session) }}
-                </div>
-              </div>
-              <div class="flex gap-1 ml-4">
-                <button
-                  @click.stop="copySession(session)"
-                  class="w-8 h-8 border-0 bg-transparent rounded text-gray-600 dark:text-gray-400 cursor-pointer transition-all duration-200 hover:bg-gray-200 dark:hover:bg-white/10 flex items-center justify-center"
-                  title="Copy"
-                >
-                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                    <path
-                      d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
-                    />
-                  </svg>
-                </button>
-                <button
-                  @click.stop="deleteSession(session)"
-                  class="w-8 h-8 border-0 bg-transparent rounded text-gray-600 dark:text-gray-400 cursor-pointer transition-all duration-200 hover:bg-red-500/15 dark:hover:bg-red-500/20 hover:text-red-500 flex items-center justify-center"
-                  title="Delete"
-                >
-                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                    <path
-                      d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <div
-              v-if="filteredSessions.length === 0"
-              class="text-center py-10 px-5 text-gray-600 dark:text-gray-400"
-            >
-              <div
-                class="w-12 h-12 text-gray-400 dark:text-gray-500 mb-4 mx-auto"
-              >
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path
-                    d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"
-                  />
-                </svg>
-              </div>
-              <p
-                class="text-base font-medium text-gray-700 dark:text-gray-300 mb-2"
-              >
-                No transcripts found
-              </p>
-              <p class="text-sm text-gray-500 dark:text-gray-400">
-                Start recording to create your first transcript
-              </p>
-            </div>
-          </div>
-        </div>
-      </template>
-      <template v-if="currentView === 'detail' && selectedSession">
-        <div
-          class="flex-1 flex flex-col overflow-hidden relative"
-          style="-webkit-app-region: no-drag"
-        >
-          <div class="flex-1 flex flex-col overflow-hidden">
-            <!-- Session Header -->
-            <div class="border-b border-gray-200 dark:border-gray-700">
-              <!-- Tab Navigation -->
-              <div
-                class="flex gap-1 bg-gray-100 dark:bg-gray-800"
-                style="-webkit-app-region: no-drag"
-              >
-                <button
-                  @click="activeTab = 'transcript'"
-                  :class="[
-                    'flex-1 py-2 px-3 text-sm font-medium transition-colors duration-200',
-                    activeTab === 'transcript'
-                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white',
-                  ]"
-                >
-                  Transcript
-                </button>
-                <button
-                  @click="activeTab = 'summary'"
-                  :class="[
-                    'flex-1 py-2 px-3 text-sm font-medium transition-colors duration-200 flex items-center justify-center gap-2',
-                    activeTab === 'summary'
-                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white',
-                  ]"
-                >
-                  Summary
-                  <div
-                    v-if="selectedSession.has_summary"
-                    class="w-2 h-2 bg-blue-500 rounded-full"
-                    title="Summary available"
-                  ></div>
-                  <div
-                    v-else-if="summaryGenerating"
-                    class="w-4 h-4 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"
-                    title="Generating summary..."
-                  ></div>
-                </button>
-              </div>
-
-              <!-- Translation Controls -->
-              <div
-                class="p-3 bg-gray-50 dark:bg-gray-800"
-                style="-webkit-app-region: no-drag"
-                v-if="currentTranslation"
-              >
-                <!-- Language Display/Toggle -->
-                <div class="flex items-center justify-between">
-                  <div
-                    class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400"
-                  >
-                    <span>Showing:</span>
-                    <button
-                      @click="showOriginal = !showOriginal"
-                      :class="[
-                        'px-2 py-1 rounded text-xs font-medium transition-colors duration-200',
-                        showOriginal
-                          ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
-                          : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600',
-                      ]"
-                    >
-                      {{
-                        showOriginal
-                          ? 'Original'
-                          : getLanguageName(selectedLanguage)
-                      }}
-                    </button>
-                    <!-- Warning when summary translation is not available -->
-                    <div
-                      v-if="
-                        !showOriginal &&
-                        activeTab === 'summary' &&
-                        !currentTranslation?.translated_summary
-                      "
-                      class="flex items-center gap-1 text-amber-600 dark:text-amber-400"
-                    >
-                      <svg
-                        class="w-3 h-3"
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
-                      >
-                        <path
-                          d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"
-                        />
-                      </svg>
-                      <span class="text-xs"
-                        >Summary translation unavailable</span
-                      >
-                    </div>
-                  </div>
-                  <button
-                    @click="showOriginal = !showOriginal"
-                    class="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors duration-200"
-                  >
-                    {{
-                      showOriginal ? '→ View Translation' : '← View Original'
-                    }}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Tab Content -->
-            <div
-              class="flex-1 flex flex-col overflow-hidden"
-              style="-webkit-app-region: no-drag"
-            >
-              <div
-                class="flex-1 flex flex-col p-5 overflow-hidden"
-              >
-                <div
-                  class="flex-1 text-base leading-relaxed text-gray-900 dark:text-white overflow-y-auto pr-2 summary-content"
-                  ref="transcriptText"
-                  style="
-                    -webkit-app-region: no-drag;
-                    user-select: text;
-                    -webkit-user-select: text;
-                  "
-                  v-html="formatSummaryAsHTML(getSummaryText())"
-                ></div>
-
-                <!-- Summary Footer with stats -->
-                <div
-                  class="py-3 px-5 border-t border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-neutral-900/95 -mx-5 -mb-5"
-                >
-                  <div
-                    class="flex justify-between items-center text-xs text-gray-500 dark:text-gray-400"
-                  >
-                    <div class="flex gap-4" v-if="activeTab === 'summary'">
-                      <span>{{ getSummaryWordCount() }} words</span>
-                      <span>{{
-                        selectedSession.compression_ratio
-                          ? Math.round(selectedSession.compression_ratio) +
-                            'x compression'
-                          : ''
-                      }}</span>
-                    </div>
-                    <div
-                      class="flex gap-4 text-xs text-gray-500 dark:text-gray-400"
-                      v-if="activeTab === 'transcript'"
-                    >
-                      <span>{{ getWordCount(selectedSession) }} words</span>
-                      <span
-                        >{{ getCharCount(selectedSession) }} characters</span
-                      >
-                    </div>
-                    <div class="flex items-center gap-3" v-if="activeTab === 'summary'">
-                      <button
-                        @click="regenerateSummary"
-                        :disabled="summaryGenerating"
-                        class="flex items-center gap-1 px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Regenerate summary"
-                      >
-                        <svg
-                          v-if="!summaryGenerating"
-                          class="w-3 h-3"
-                          viewBox="0 0 24 24"
-                          fill="currentColor"
-                        >
-                          <path
-                            d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"
-                          />
-                        </svg>
-                        <div
-                          v-else
-                          class="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin"
-                        ></div>
-                        <span>{{
-                          summaryGenerating ? 'Generating...' : 'Regenerate'
-                        }}</span>
-                      </button>
-                    </div>
-                    <div class="flex flex-col items-center justify-between">
-                      <div class="flex items-center gap-2">
-                        <select
-                          v-model="selectedLanguage"
-                          @change="onLanguageChange"
-                          :disabled="translationGenerating"
-                          class="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-0.5 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-blue-500 dark:focus:border-blue-400 disabled:opacity-50"
-                        >
-                          <option value="">Select language</option>
-                          <option
-                            v-for="lang in supportedLanguages"
-                            :key="lang.code"
-                            :value="lang.code"
-                          >
-                            {{ lang.name }}
-                          </option>
-                        </select>
-                        <button
-                          @click="translateSession"
-                          :disabled="!selectedLanguage || translationGenerating"
-                          class="flex items-center gap-1 px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                          title="Translate transcript and summary"
-                        >
-                          <svg
-                            v-if="!translationGenerating"
-                            class="w-3 h-3"
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                          >
-                            <path
-                              d="M12.87 15.07l-2.54-2.51.03-.03A17.52 17.52 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"
-                            />
-                          </svg>
-                          <div
-                            v-else
-                            class="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin"
-                          ></div>
-                          <span>{{
-                            translationGenerating
-                              ? 'Translating...'
-                              : 'Translate'
-                          }}</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Summary Tab -->
-              <div
-                v-if="
-                  activeTab === 'summary' &&
-                  !selectedSession.has_summary &&
-                  !summaryGenerating
-                "
-                class="flex-1 flex flex-col p-5 overflow-hidden"
-              >
-                <!-- Summary Generation State -->
-                <div
-                  v-if="!selectedSession.has_summary && !summaryGenerating"
-                  class="flex-1 flex items-center justify-center"
-                >
-                  <div class="text-center max-w-md">
-                    <div
-                      class="w-16 h-16 mx-auto mb-4 text-gray-400 dark:text-gray-500"
-                    >
-                      <svg viewBox="0 0 24 24" fill="currentColor">
-                        <path
-                          d="M9 5v2h6.59L4 18.59 5.41 20 17 8.41V15h2V5H9z"
-                        />
-                      </svg>
-                    </div>
-                    <h4
-                      class="text-lg font-medium text-gray-900 dark:text-white mb-2"
-                    >
-                      No Summary Yet
-                    </h4>
-                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                      Generate an AI summary of this transcript to see key
-                      points and highlights.
-                    </p>
-                    <button
-                      @click="generateSummary"
-                      class="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors duration-200"
-                    >
-                      Generate Summary
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div
-                v-if="activeTab === 'summary' && summaryGenerating"
-                class="flex-1 flex flex-col p-5 overflow-hidden"
-              >
-                <div class="flex-1 flex items-center justify-center">
-                  <div class="text-center">
-                    <div
-                      class="w-8 h-8 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto mb-4"
-                    ></div>
-                    <p class="text-sm text-gray-600 dark:text-gray-400">
-                      Generating summary...
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </template>
+      </div>
     </div>
   </div>
 </template>
 
 <script>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useTranscriptionStore } from '../stores/transcription'
+import SessionList from './archive/SessionList.vue'
+import SessionDetail from './archive/SessionDetail.vue'
+import TranslationControls from './archive/TranslationControls.vue'
 
 export default {
   name: 'ArchiveWindow',
+  components: {
+    SessionList,
+    SessionDetail,
+    TranslationControls
+  },
   setup() {
     const transcriptionStore = useTranscriptionStore()
-    const searchQuery = ref('')
+    
+    // Main state
     const sessions = ref([])
     const currentView = ref('list')
     const selectedSession = ref(null)
-    const transcriptText = ref(null)
-    const summaryText = ref(null)
-    const activeTab = ref('transcript')
+    const sessionDetail = ref(null)
+    
+    // Summary state
     const summaryGenerating = ref(false)
+    
+    // Translation state
     const supportedLanguages = ref([])
     const selectedLanguage = ref('')
     const currentTranslation = ref(null)
     const translationGenerating = ref(false)
-    const showOriginal = ref(false)
+    const showOriginal = ref(true)
 
+    // WebSocket message handler
     const handleBackendMessage = message => {
       switch (message.type) {
         case 'sessions_list':
           sessions.value = message.sessions || []
           break
         case 'session_transcript':
-          if (
-            selectedSession.value &&
-            selectedSession.value.id === message.session_id
-          ) {
+          if (selectedSession.value && selectedSession.value.id === message.session_id) {
             selectedSession.value.fullText = message.transcript?.full_text || ''
           }
           break
         case 'session_summary':
-          if (
-            selectedSession.value &&
-            selectedSession.value.id === message.session_id
-          ) {
+          if (selectedSession.value && selectedSession.value.id === message.session_id) {
             if (message.summary) {
               selectedSession.value.summary = message.summary.summary
-              selectedSession.value.summary_words =
-                message.summary.summary_words
-              selectedSession.value.compression_ratio =
-                message.summary.compression_ratio
+              selectedSession.value.summary_words = message.summary.summary_words
+              selectedSession.value.compression_ratio = message.summary.compression_ratio
               selectedSession.value.summary_model = message.summary.model
               selectedSession.value.has_summary = true
             }
           }
           break
         case 'summary_generated':
-          // Update session in list when summary is generated
-          const sessionIndex = sessions.value.findIndex(
-            s => s.id === message.session_id
-          )
-          if (sessionIndex !== -1) {
-            sessions.value[sessionIndex].has_summary = true
-            sessions.value[sessionIndex].summary = message.summary
-            sessions.value[sessionIndex].compression_ratio =
-              message.compression_ratio
-          }
-
-          // Update selected session if it matches
-          if (
-            selectedSession.value &&
-            selectedSession.value.id === message.session_id
-          ) {
-            selectedSession.value.summary = message.summary
-            selectedSession.value.compression_ratio = message.compression_ratio
-            selectedSession.value.has_summary = true
-            summaryGenerating.value = false
-          }
+          updateSessionSummary(message)
           break
         case 'summary_generation_result':
-          if (
-            selectedSession.value &&
-            selectedSession.value.id === message.session_id
-          ) {
+          if (selectedSession.value && selectedSession.value.id === message.session_id) {
             summaryGenerating.value = false
             if (!message.success) {
               console.error('Failed to generate summary')
@@ -543,71 +183,75 @@ export default {
           }
           break
         case 'session_deleted':
-          if (message.success) {
-            sessions.value = sessions.value.filter(
-              s => s.id !== message.session_id
-            )
-            if (
-              selectedSession.value &&
-              selectedSession.value.id === message.session_id
-            ) {
-              goBack()
-            }
-          }
+          handleSessionDeleted(message)
           break
         case 'supported_languages':
           supportedLanguages.value = message.languages || []
           break
         case 'translation_result':
-          if (
-            selectedSession.value &&
-            selectedSession.value.id === message.session_id
-          ) {
-            translationGenerating.value = false
-            if (message.success) {
-              // Load the translation data
-              loadSessionTranslation(
-                message.session_id,
-                message.target_language
-              )
-            }
-          }
+          handleTranslationResult(message)
           break
         case 'session_translation':
-          if (
-            selectedSession.value &&
-            selectedSession.value.id === message.session_id
-          ) {
+          if (selectedSession.value && selectedSession.value.id === message.session_id) {
             currentTranslation.value = message.translation
-            // Translation data loaded successfully
             if (message.translation) {
               showOriginal.value = false // Show translation by default when loaded
             }
           }
           break
         case 'translation_generated':
-          // Update any UI indicators when translation is complete
-          if (
-            selectedSession.value &&
-            selectedSession.value.id === message.session_id
-          ) {
-            translationGenerating.value = false
-            // Load the new translation and set the language if not already set
-            if (
-              selectedLanguage.value === message.target_language ||
-              !selectedLanguage.value
-            ) {
-              selectedLanguage.value = message.target_language
-              loadSessionTranslation(
-                message.session_id,
-                message.target_language
-              )
-            }
-          }
+          handleTranslationGenerated(message)
           break
       }
     }
 
+    // Helper functions for message handling
+    const updateSessionSummary = (message) => {
+      // Update session in list
+      const sessionIndex = sessions.value.findIndex(s => s.id === message.session_id)
+      if (sessionIndex !== -1) {
+        sessions.value[sessionIndex].has_summary = true
+        sessions.value[sessionIndex].compression_ratio = message.compression_ratio
+      }
+
+      // Update selected session
+      if (selectedSession.value && selectedSession.value.id === message.session_id) {
+        selectedSession.value.summary = message.summary
+        selectedSession.value.compression_ratio = message.compression_ratio
+        selectedSession.value.has_summary = true
+        summaryGenerating.value = false
+      }
+    }
+
+    const handleSessionDeleted = (message) => {
+      if (message.success) {
+        sessions.value = sessions.value.filter(s => s.id !== message.session_id)
+        if (selectedSession.value && selectedSession.value.id === message.session_id) {
+          goBack()
+        }
+      }
+    }
+
+    const handleTranslationResult = (message) => {
+      if (selectedSession.value && selectedSession.value.id === message.session_id) {
+        translationGenerating.value = false
+        if (message.success) {
+          loadSessionTranslation(message.session_id, message.target_language)
+        }
+      }
+    }
+
+    const handleTranslationGenerated = (message) => {
+      if (selectedSession.value && selectedSession.value.id === message.session_id) {
+        translationGenerating.value = false
+        if (selectedLanguage.value === message.target_language || !selectedLanguage.value) {
+          selectedLanguage.value = message.target_language
+          loadSessionTranslation(message.session_id, message.target_language)
+        }
+      }
+    }
+
+    // API functions
     const loadSessions = async () => {
       try {
         await window.electronAPI.sendToBackend({
@@ -619,53 +263,39 @@ export default {
       }
     }
 
-    const filteredSessions = computed(() => {
-      if (!searchQuery.value) return sessions.value
-
-      const query = searchQuery.value.toLowerCase()
-      return sessions.value.filter(
-        session =>
-          getPreviewText(session).toLowerCase().includes(query) ||
-          session.source.toLowerCase().includes(query)
-      )
-    })
-
-    const formatDate = dateString => {
-      const date = new Date(dateString)
-      return date.toLocaleDateString() + ' ' + date.toLocaleTimeString()
+    const loadSupportedLanguages = async () => {
+      try {
+        await window.electronAPI.sendToBackend({
+          type: 'get_supported_languages',
+        })
+      } catch (error) {
+        console.error('Failed to load supported languages:', error)
+      }
     }
 
-    const formatDuration = seconds => {
-      const mins = Math.floor(seconds / 60)
-      const secs = seconds % 60
-      return `${mins}:${secs.toString().padStart(2, '0')}`
+    const loadSessionTranslation = async (sessionId, targetLanguage) => {
+      try {
+        await window.electronAPI.sendToBackend({
+          type: 'get_session_translation',
+          session_id: sessionId,
+          target_language: targetLanguage,
+        })
+      } catch (error) {
+        console.error('Failed to load session translation:', error)
+      }
     }
 
-    const getPreviewText = session => {
-      return session.preview || session.fullText || 'No transcript available'
-    }
-
-    const getWordCount = session => {
-      const text = session.fullText || session.preview || ''
-      if (!text) return 0
-      return text.trim().split(/\s+/).length
-    }
-
-    const getCharCount = session => {
-      const text = session.fullText || session.preview || ''
-      return text.length
-    }
-
-    const viewSession = async session => {
+    // Navigation functions
+    const viewSession = async (session) => {
       selectedSession.value = session
       currentView.value = 'detail'
-      activeTab.value = 'transcript'
-
+      
       // Reset translation state
       selectedLanguage.value = ''
       currentTranslation.value = null
       showOriginal.value = true
 
+      // Load transcript if not already loaded
       if (!session.fullText) {
         try {
           await window.electronAPI.sendToBackend({
@@ -688,12 +318,6 @@ export default {
           console.error('Failed to load session summary:', error)
         }
       }
-
-      nextTick(() => {
-        if (transcriptText.value) {
-          transcriptText.value.scrollTop = 0
-        }
-      })
     }
 
     const goBack = () => {
@@ -705,7 +329,8 @@ export default {
       showOriginal.value = true
     }
 
-    const copySession = async session => {
+    // Action functions
+    const copySession = async (session) => {
       const textToCopy = session.fullText || session.preview || ''
       try {
         await navigator.clipboard.writeText(textToCopy)
@@ -714,25 +339,26 @@ export default {
       }
     }
 
-    const copyTranscript = async () => {
-      if (selectedSession.value) {
-        let textToCopy = ''
+    const copyCurrentContent = async () => {
+      if (!selectedSession.value || !sessionDetail.value) return
 
-        if (activeTab.value === 'summary') {
-          textToCopy = getSummaryText()
-        } else {
-          textToCopy = getTranscriptText()
-        }
+      // Get current content from SessionDetail component
+      let textToCopy = ''
+      try {
+        textToCopy = sessionDetail.value.getCurrentContent()
+      } catch (error) {
+        console.warn('Could not get current content from SessionDetail, falling back to transcript')
+        textToCopy = selectedSession.value.fullText || selectedSession.value.preview || ''
+      }
 
-        try {
-          await navigator.clipboard.writeText(textToCopy)
-        } catch (error) {
-          console.error('Failed to copy content:', error)
-        }
+      try {
+        await navigator.clipboard.writeText(textToCopy)
+      } catch (error) {
+        console.error('Failed to copy content:', error)
       }
     }
 
-    const deleteSession = async session => {
+    const deleteSession = async (session) => {
       if (confirm('Are you sure you want to delete this transcript?')) {
         try {
           await window.electronAPI.sendToBackend({
@@ -745,11 +371,11 @@ export default {
       }
     }
 
+    // Summary functions
     const generateSummary = async () => {
       if (!selectedSession.value) return
 
       summaryGenerating.value = true
-
       try {
         await window.electronAPI.sendToBackend({
           type: 'generate_summary',
@@ -765,7 +391,6 @@ export default {
       if (!selectedSession.value) return
 
       summaryGenerating.value = true
-
       try {
         await window.electronAPI.sendToBackend({
           type: 'generate_summary',
@@ -777,110 +402,11 @@ export default {
       }
     }
 
-    const getSummaryWordCount = () => {
-      if (!selectedSession.value?.summary) return 0
-      return selectedSession.value.summary.trim().split(/\s+/).length
-    }
-
-    const closeWindow = () => {
-      const urlParams = new URLSearchParams(window.location.search)
-      if (urlParams.get('mode') === 'archive' && window.electronAPI) {
-        window.electronAPI.closeArchive()
-      }
-    }
-
-    const formatSummaryAsHTML = summaryText => {
-      if (!summaryText) return ''
-
-      // Escape any potential HTML entities first for security
-      const escapeHTML = text =>
-        text
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#x27;')
-
-      // Process the text step by step
-      let html = escapeHTML(summaryText)
-
-      // Convert **Section Headers** to proper headings
-      html = html.replace(
-        /\*\*(.*?)\*\*:/g,
-        '<h3 class="section-header">$1</h3>'
-      )
-
-      // Convert remaining **bold** text
-      html = html.replace(
-        /\*\*(.*?)\*\*/g,
-        '<strong class="font-semibold">$1</strong>'
-      )
-
-      // Convert bullet points to list items
-      html = html.replace(/^\* (.+)$/gm, '<li>$1</li>')
-
-      // Split into sections and wrap appropriately
-      const sections = html.split(/(?=<h3)/g).filter(section => section.trim())
-
-      const formattedSections = sections.map(section => {
-        // Wrap consecutive <li> elements in <ul> tags
-        section = section.replace(/(<li>.*<\/li>[\s\n]*)+/gs, match => {
-          const cleanedMatch = match.replace(/\n/g, '').trim()
-          return `<ul class="section-list">${cleanedMatch}</ul>`
-        })
-
-        // Convert line breaks to proper spacing
-        section = section.replace(/\n/g, '<br>')
-
-        return `<div class="section">${section}</div>`
-      })
-
-      return formattedSections.join('')
-    }
-
-    const getTranscriptText = () => {
-      if (
-        !showOriginal.value &&
-        currentTranslation.value?.translated_transcript
-      ) {
-        return currentTranslation.value.translated_transcript
-      }
-      return (
-        selectedSession.value?.fullText ||
-        getPreviewText(selectedSession.value) ||
-        ''
-      )
-    }
-
-    const getSummaryText = () => {
-      if (!showOriginal.value && currentTranslation.value?.translated_summary) {
-        return currentTranslation.value.translated_summary
-      }
-      return selectedSession.value?.summary || ''
-    }
-
-    const getLanguageName = languageCode => {
-      const language = supportedLanguages.value.find(
-        lang => lang.code === languageCode
-      )
-      return language ? language.name : languageCode
-    }
-
-    const loadSupportedLanguages = async () => {
-      try {
-        await window.electronAPI.sendToBackend({
-          type: 'get_supported_languages',
-        })
-      } catch (error) {
-        console.error('Failed to load supported languages:', error)
-      }
-    }
-
+    // Translation functions
     const translateSession = async () => {
       if (!selectedSession.value || !selectedLanguage.value) return
 
       translationGenerating.value = true
-
       try {
         await window.electronAPI.sendToBackend({
           type: 'translate_session',
@@ -893,28 +419,58 @@ export default {
       }
     }
 
-    const loadSessionTranslation = async (sessionId, targetLanguage) => {
+    const handleTranslationFromTab = async (tabInfo) => {
+      if (!selectedSession.value || !selectedLanguage.value) return
+
+      console.log(`Translating content from ${tabInfo.activeTab} tab`)
+      
+      translationGenerating.value = true
       try {
         await window.electronAPI.sendToBackend({
-          type: 'get_session_translation',
-          session_id: sessionId,
-          target_language: targetLanguage,
+          type: 'translate_session',
+          session_id: selectedSession.value.id,
+          target_language: selectedLanguage.value,
+          active_tab: tabInfo.activeTab,
+          content: tabInfo.content
         })
       } catch (error) {
-        console.error('Failed to load session translation:', error)
+        console.error('Failed to translate session:', error)
+        translationGenerating.value = false
       }
     }
 
-    const onLanguageChange = async () => {
-      if (selectedSession.value && selectedLanguage.value) {
+    const onLanguageChange = async (newLanguage) => {
+      selectedLanguage.value = newLanguage
+      if (selectedSession.value && newLanguage) {
         // Check if translation already exists
-        await loadSessionTranslation(
-          selectedSession.value.id,
-          selectedLanguage.value
-        )
+        await loadSessionTranslation(selectedSession.value.id, newLanguage)
+      }
+    }
+    
+    const handleTranslate = async () => {
+      await translateSession()
+    }
+
+    // Utility functions
+    const formatDate = dateString => {
+      const date = new Date(dateString)
+      return date.toLocaleDateString() + ' ' + date.toLocaleTimeString()
+    }
+
+    const formatDuration = seconds => {
+      const mins = Math.floor(seconds / 60)
+      const secs = seconds % 60
+      return `${mins}:${secs.toString().padStart(2, '0')}`
+    }
+
+    const closeWindow = () => {
+      const urlParams = new URLSearchParams(window.location.search)
+      if (urlParams.get('mode') === 'archive' && window.electronAPI) {
+        window.electronAPI.closeArchive()
       }
     }
 
+    // Keyboard handling
     const handleKeydown = event => {
       if (event.key === 'Escape') {
         if (currentView.value === 'detail') {
@@ -925,11 +481,12 @@ export default {
       } else if (event.key === 'c' && (event.metaKey || event.ctrlKey)) {
         event.preventDefault()
         if (currentView.value === 'detail') {
-          copyTranscript()
+          copyCurrentContent()
         }
       }
     }
 
+    // Lifecycle
     onMounted(async () => {
       document.addEventListener('keydown', handleKeydown)
 
@@ -959,39 +516,36 @@ export default {
     })
 
     return {
-      searchQuery,
+      // State
       sessions,
-      filteredSessions,
       currentView,
       selectedSession,
-      transcriptText,
-      summaryText,
-      activeTab,
+      sessionDetail,
       summaryGenerating,
       supportedLanguages,
       selectedLanguage,
       currentTranslation,
       translationGenerating,
       showOriginal,
-      formatDate,
-      formatDuration,
-      getPreviewText,
-      getWordCount,
-      getCharCount,
+      
+      // Navigation
       viewSession,
       goBack,
+      
+      // Actions
       copySession,
-      copyTranscript,
+      copyCurrentContent,
       deleteSession,
       generateSummary,
       regenerateSummary,
-      getSummaryWordCount,
-      formatSummaryAsHTML,
-      getTranscriptText,
-      getSummaryText,
-      getLanguageName,
       translateSession,
+      handleTranslationFromTab,
+      handleTranslate,
       onLanguageChange,
+      
+      // Utilities
+      formatDate,
+      formatDuration,
       closeWindow,
     }
   },
@@ -999,6 +553,7 @@ export default {
 </script>
 
 <style scoped>
+/* Keep existing scrollbar styles */
 .overflow-y-auto::-webkit-scrollbar {
   width: 6px;
 }
@@ -1022,64 +577,5 @@ export default {
 
 .dark .overflow-y-auto::-webkit-scrollbar-thumb:hover {
   background-color: rgb(107 114 128);
-}
-
-/* Summary content styling */
-.summary-content {
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  line-height: 1.6;
-}
-
-.summary-content .section {
-  margin-bottom: 1.5rem;
-}
-
-.summary-content .section:last-child {
-  margin-bottom: 0;
-}
-
-.summary-content .section-header {
-  display: block;
-  margin: 1.5rem 0 0.75rem 0;
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: rgb(55 65 81);
-  border-bottom: 2px solid rgb(229 231 235);
-  padding-bottom: 0.5rem;
-}
-
-.summary-content .section:first-child .section-header {
-  margin-top: 0;
-}
-
-.dark .summary-content .section-header {
-  color: rgb(243 244 246);
-  border-bottom-color: rgb(75 85 99);
-}
-
-.summary-content .section-list {
-  margin: 0.75rem 0;
-  padding-left: 1.5rem;
-  list-style: none;
-}
-
-.summary-content .section-list li {
-  position: relative;
-  margin-bottom: 0.5rem;
-  padding-left: 0.75rem;
-}
-
-.summary-content .section-list li::before {
-  content: '•';
-  color: rgb(59 130 246);
-  font-weight: bold;
-  position: absolute;
-  left: -0.5rem;
-  top: 0;
-}
-
-.summary-content .font-semibold {
-  font-weight: 600;
 }
 </style>

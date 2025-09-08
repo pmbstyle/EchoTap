@@ -39,13 +39,43 @@ class TranscriptionEngine:
     """Real-time speech-to-text engine with streaming support"""
     
     def __init__(self):
-        # Model configuration - using 'large-v3-turbo' for best accuracy + speed
-        self.model_name = "large-v3-turbo"
-        self.model_size = "large-v3-turbo"
+        # Progressive model selection for different hardware capabilities
+        self.model_tiers = {
+            "minimal": {
+                "name": "tiny",
+                "size_mb": 39,
+                "min_ram_gb": 2,
+                "description": "Fastest, lowest accuracy - good for resource-constrained systems"
+            },
+            "balanced": {
+                "name": "base", 
+                "size_mb": 74,
+                "min_ram_gb": 4,
+                "description": "Good balance of speed and accuracy"
+            },
+            "quality": {
+                "name": "small",
+                "size_mb": 244, 
+                "min_ram_gb": 8,
+                "description": "Better accuracy, moderate speed - recommended for most systems"
+            },
+            "premium": {
+                "name": "medium",
+                "size_mb": 769,
+                "min_ram_gb": 16,
+                "description": "Best accuracy, slower - for high-end systems only"
+            }
+        }
+        
+        # Auto-select model based on system resources
+        self.model_name = self._auto_select_model()
+        self.model_size = self.model_name
         self.model: Optional[WhisperModel] = None
         self.language = None  # Auto-detect
-        self.device = "cpu"  # Will try to use GPU if available
-        self.compute_type = "int8"  # Quantization for speed
+        
+        # Auto-detect compute device and settings
+        self.device = "cpu"
+        self.compute_type = "int8"  # Default quantization
         
         # Audio processing
         self.sample_rate = 16000
@@ -80,6 +110,79 @@ class TranscriptionEngine:
         }
         
         self._initialize()
+    
+    def _get_system_resources(self) -> Dict[str, Any]:
+        """Get system resource information for model selection"""
+        try:
+            import psutil
+            ram_gb = psutil.virtual_memory().total / (1024**3)
+            cpu_count = psutil.cpu_count()
+            
+            # Try to get GPU memory if available
+            gpu_memory_gb = 0
+            try:
+                import GPUtil
+                gpus = GPUtil.getGPUs()
+                if gpus:
+                    gpu_memory_gb = gpus[0].memoryTotal / 1024  # Convert MB to GB
+            except ImportError:
+                pass
+            
+            return {
+                "ram_gb": ram_gb,
+                "cpu_count": cpu_count,
+                "gpu_memory_gb": gpu_memory_gb
+            }
+        except ImportError:
+            # Fallback when psutil not available
+            logger.warning("psutil not available, using conservative resource estimates")
+            return {
+                "ram_gb": 4.0,  # Conservative estimate
+                "cpu_count": 2,
+                "gpu_memory_gb": 0
+            }
+    
+    def _auto_select_model(self) -> str:
+        """Automatically select appropriate Whisper model based on system resources"""
+        resources = self._get_system_resources()
+        ram_gb = resources["ram_gb"]
+        
+        logger.info(f"System resources: {ram_gb:.1f}GB RAM, {resources['cpu_count']} CPUs, {resources['gpu_memory_gb']:.1f}GB GPU")
+        
+        # Select tier based on available RAM with safety margin
+        if ram_gb < 3:
+            tier = "minimal"
+        elif ram_gb < 6:
+            tier = "balanced"
+        elif ram_gb < 12:
+            tier = "quality"
+        else:
+            tier = "premium"
+        
+        selected_model = self.model_tiers[tier]["name"]
+        logger.info(f"Auto-selected Whisper model: {selected_model} ({tier} tier, {self.model_tiers[tier]['size_mb']}MB)")
+        
+        return selected_model
+    
+    def get_model_info(self, model_name: str = None) -> Dict[str, Any]:
+        """Get information about current or specified model"""
+        if model_name is None:
+            model_name = self.model_name
+        
+        # Find tier for this model
+        for tier, info in self.model_tiers.items():
+            if info["name"] == model_name:
+                return {**info, "tier": tier, "current": model_name == self.model_name}
+        
+        # Fallback for unknown models
+        return {
+            "name": model_name,
+            "tier": "unknown", 
+            "size_mb": 0,
+            "min_ram_gb": 0,
+            "description": "Custom or unknown model",
+            "current": model_name == self.model_name
+        }
         
     def _initialize(self):
         """Initialize the transcription engine"""
@@ -143,7 +246,7 @@ class TranscriptionEngine:
         logger.info("Using CPU inference")
         
     def _load_model(self, model_name: str):
-        """Load Whisper model"""
+        """Load Whisper model with automatic fallback and optimization"""
         if not FASTER_WHISPER_AVAILABLE:
             logger.error("faster-whisper not available")
             return
@@ -151,28 +254,61 @@ class TranscriptionEngine:
         try:
             logger.info(f"Loading model: {model_name}")
             
+            # Get system resources for optimization
+            resources = self._get_system_resources()
+            
             # Download model if not cached
             model_path = self.model_cache_dir / model_name
             if not model_path.exists():
                 logger.info(f"Downloading model {model_name}...")
                 download_model(model_name, output_dir=str(self.model_cache_dir))
             
-            # Load model
+            # Optimize settings based on system resources
+            cpu_threads = min(resources["cpu_count"], 4)  # Cap at 4 threads
+            
+            # Load model with optimized settings
             self.model = WhisperModel(
                 model_name,
                 device=self.device,
                 compute_type=self.compute_type,
-                download_root=str(self.model_cache_dir)
+                download_root=str(self.model_cache_dir),
+                cpu_threads=cpu_threads,
+                num_workers=1  # Single worker to prevent memory issues
             )
             
             self.model_name = model_name
-            logger.info(f"Model {model_name} loaded successfully")
+            logger.info(f"Model {model_name} loaded successfully ({cpu_threads} threads)")
             
         except Exception as e:
             logger.error(f"Failed to load model {model_name}: {e}")
-            # Try to load base model as fallback
-            if model_name != "base":
-                self._load_model("base")
+            
+            # Try progressive fallback
+            current_tier = None
+            for tier, info in self.model_tiers.items():
+                if info["name"] == model_name:
+                    current_tier = tier
+                    break
+            
+            # Try fallback models in order: quality -> balanced -> minimal
+            fallback_order = ["quality", "balanced", "minimal"]
+            if current_tier in fallback_order:
+                fallback_tiers = fallback_order[fallback_order.index(current_tier) + 1:]
+            else:
+                fallback_tiers = fallback_order
+            
+            for fallback_tier in fallback_tiers:
+                fallback_model = self.model_tiers[fallback_tier]["name"]
+                if fallback_model != model_name:
+                    logger.warning(f"Trying fallback model: {fallback_model}")
+                    try:
+                        # Recursive call with fallback
+                        return self._load_model(fallback_model)
+                    except Exception as fallback_error:
+                        logger.error(f"Fallback model {fallback_model} also failed: {fallback_error}")
+                        continue
+            
+            # If all fallbacks fail, log error but don't crash
+            logger.error("All Whisper models failed to load. Transcription will be unavailable.")
                 
     async def start_session(self, session_id: str):
         """Start a new transcription session"""
@@ -343,69 +479,25 @@ class TranscriptionEngine:
             if len(audio_np) == 0:
                 return None
                 
-            # Audio enhancement for both sources
+            # Simplified preprocessing for microphone audio
             if source == "microphone":
-                # Enhanced preprocessing for microphone audio
+                # Single normalization pass - remove redundant operations
                 max_val = np.max(np.abs(audio_np))
-                
-                # Normalize quiet microphone audio
                 if max_val > 0:
-                    # Apply normalization to improve weak signals
                     audio_np = audio_np * (0.7 / max_val)
-                    
-                    # Apply gentle compression for consistent levels
-                    compressed = np.sign(audio_np) * np.power(np.abs(audio_np), 0.8)
-                    audio_np = compressed * 0.9
-                
-                # Simple high-pass filter for microphone noise
-                if len(audio_np) > 1:
-                    audio_np[1:] = audio_np[1:] - 0.95 * audio_np[:-1]
-                
-                # Final normalization
-                final_max = np.max(np.abs(audio_np))
-                if final_max > 0:
-                    audio_np = audio_np * (0.8 / final_max)
             
-            # Enhanced preprocessing for system audio
+            # Simplified preprocessing for system audio
             elif source == "system_audio":
-                # Advanced audio preprocessing for YouTube/system audio
-                max_val = np.max(np.abs(audio_np))
-                
-                # Handle WASAPI loopback silence issues
-                if max_val < 0.01:  # Very quiet audio
-                    # Add very low-level noise to prevent Whisper VAD confusion
-                    noise_level = 0.001
-                    audio_np += np.random.normal(0, noise_level, audio_np.shape)
-                
-                # Advanced normalization with dynamic range compression
+                # Single-pass normalization - remove redundant filtering
                 max_val = np.max(np.abs(audio_np))
                 if max_val > 0:
-                    # More aggressive normalization for system audio
-                    audio_np = audio_np * (0.95 / max_val)
-                    
-                    # Apply gentle compression to even out volume levels
-                    # This helps with YouTube videos that have varying volume
-                    compressed = np.sign(audio_np) * np.power(np.abs(audio_np), 0.7)
-                    audio_np = compressed * 0.8
+                    # Simple normalization without multiple passes
+                    audio_np = audio_np * (0.8 / max_val)
                 
-                # Multi-stage filtering for better speech isolation
-                if len(audio_np) > 1:
-                    # High-pass filter to remove low-frequency noise/music
-                    audio_np[1:] = audio_np[1:] - 0.9 * audio_np[:-1]
-                    
-                    # Simple de-emphasis to reduce harsh frequencies
-                    if len(audio_np) > 2:
-                        audio_np[2:] = audio_np[2:] - 0.3 * audio_np[1:-1]
-                
-                # Adaptive noise gate based on content
+                # Simple noise gate only
                 rms_level = np.sqrt(np.mean(audio_np ** 2))
-                adaptive_threshold = max(0.002, rms_level * 0.1)
-                audio_np[np.abs(audio_np) < adaptive_threshold] = 0
-                
-                # Final normalization to ensure consistent levels
-                final_max = np.max(np.abs(audio_np))
-                if final_max > 0:
-                    audio_np = audio_np * (0.8 / final_max)
+                if rms_level < 0.002:
+                    return None  # Skip very quiet audio
                 
             # Check audio quality for system audio sources
             if source == "system_audio":
