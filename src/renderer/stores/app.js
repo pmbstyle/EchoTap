@@ -10,13 +10,15 @@ export const useAppStore = defineStore('app', () => {
   const waveformData = ref([])
   const sessions = ref([])
   const preferences = ref({
+    theme: 'system',
+    transcriptionModel: 'base',
+    summarizationModel: 'balanced',
+    translationModel: 'balanced',
     audioSource: 'microphone',
     language: 'auto',
-    model: 'base',
     vadSensitivity: 50,
     copyMode: 'current',
     copyMinutes: 5,
-    theme: 'system',
     overlayFontSize: 16,
     shortcuts: {
       startStop: 'Alt+Shift+S',
@@ -85,9 +87,8 @@ export const useAppStore = defineStore('app', () => {
   // Initialize store
   const initialize = async () => {
     try {
-      // Load preferences from electron store
-      const savedPreferences =
-        await window.electronAPI?.getStoreValue('preferences')
+      // Load preferences from settings file
+      const savedPreferences = await window.electronAPI?.getSettings()
       if (savedPreferences) {
         updatePreferences(savedPreferences)
       }

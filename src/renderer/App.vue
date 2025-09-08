@@ -7,6 +7,8 @@
 
     <ArchiveWindow v-else-if="isArchiveMode" @close="closeWindow" />
 
+    <SettingsWindow v-else-if="isSettingsMode" @close="closeWindow" />
+
     <template v-else>
       <CapsuleBar
         :is-recording="transcriptionStore.isRecording"
@@ -19,14 +21,12 @@
         @toggle-recording="handleToggleRecording"
         @show-transcript="handleShowTranscript"
         @show-archive="handleShowArchive"
+        @show-settings="handleShowSettings"
         @minimize="minimizeWindow"
         @close="closeWindow"
       />
 
-      <PreferencesWindow
-        v-if="showPreferences"
-        @close="showPreferences = false"
-      />
+
     </template>
   </div>
 </template>
@@ -37,7 +37,7 @@ import { useAppStore } from './stores/app'
 import { useTranscriptionStore } from './stores/transcription'
 import CapsuleBar from './components/CapsuleBar.vue'
 import ArchiveWindow from './components/ArchiveWindow.vue'
-import PreferencesWindow from './components/PreferencesWindow.vue'
+import SettingsWindow from './components/SettingsWindow.vue'
 import TranscriptWindow from './components/TranscriptWindow.vue'
 
 export default {
@@ -45,7 +45,7 @@ export default {
   components: {
     CapsuleBar,
     ArchiveWindow,
-    PreferencesWindow,
+    SettingsWindow,
     TranscriptWindow,
   },
   setup() {
@@ -54,9 +54,10 @@ export default {
 
     const isTranscriptMode = ref(false)
     const isArchiveMode = ref(false)
+    const isSettingsMode = ref(false)
 
     const showArchive = ref(false)
-    const showPreferences = ref(false)
+
     const showTranscript = ref(false)
     const isDarkMode = ref(true)
 
@@ -161,6 +162,12 @@ export default {
       }
     }
 
+    const handleShowSettings = () => {
+      if (window.electronAPI) {
+        window.electronAPI.showSettings()
+      }
+    }
+
     const handleCopyTranscript = () => {
       if (currentText.value) {
         navigator.clipboard.writeText(currentText.value).catch(error => {
@@ -179,15 +186,14 @@ export default {
       const urlParams = new URLSearchParams(window.location.search)
       isTranscriptMode.value = urlParams.get('mode') === 'transcript'
       isArchiveMode.value = urlParams.get('mode') === 'archive'
+      isSettingsMode.value = urlParams.get('mode') === 'settings'
 
       if (window.electronAPI) {
         try {
           window.electronAPI.onBackendMessage(handleBackendMessage)
 
-          if (!isTranscriptMode.value && !isArchiveMode.value) {
-            window.electronAPI.onShowPreferences(() => {
-              showPreferences.value = true
-            })
+          if (!isTranscriptMode.value && !isArchiveMode.value && !isSettingsMode.value) {
+
             window.electronAPI.onCopyTranscript(handleCopyTranscript)
             window.electronAPI.onToggleOverlay(handleToggleOverlay)
 
@@ -198,6 +204,13 @@ export default {
             window.electronAPI.onArchiveWindowClosed(() => {
               archiveWindowOpen.value = false
               console.log('📚 Archive window closed')
+            })
+            
+            // Listen for theme changes
+            window.electronAPI.onThemeChanged((event, theme) => {
+              isDarkMode.value = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+              document.documentElement.classList.toggle('dark-mode', isDarkMode.value)
+              console.log('Theme changed:', theme, 'Dark mode:', isDarkMode.value)
             })
           }
 
@@ -226,6 +239,8 @@ export default {
         try {
           window.electronAPI.removeAllListeners('backend-message')
           window.electronAPI.removeAllListeners('show-preferences')
+          window.electronAPI.removeAllListeners('show-preferences-first-run')
+          window.electronAPI.removeAllListeners('theme-changed')
           window.electronAPI.removeAllListeners('copy-transcript')
           window.electronAPI.removeAllListeners('toggle-overlay')
         } catch (error) {
@@ -240,9 +255,10 @@ export default {
     return {
       isTranscriptMode,
       isArchiveMode,
+      isSettingsMode,
       transcriptionStore,
       showArchive,
-      showPreferences,
+
       showTranscript,
       isDarkMode,
       transcriptWindowOpen,
@@ -250,6 +266,7 @@ export default {
       handleToggleRecording,
       handleShowTranscript,
       handleShowArchive,
+      handleShowSettings,
       minimizeWindow,
       closeWindow,
     }

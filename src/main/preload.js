@@ -28,13 +28,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
   closeTranscript: () => ipcRenderer.invoke('close-transcript'),
   showArchive: () => ipcRenderer.invoke('show-archive'),
   closeArchive: () => ipcRenderer.invoke('close-archive'),
+  showSettings: () => ipcRenderer.invoke('show-settings'),
+  closeSettings: () => ipcRenderer.invoke('close-settings'),
 
   // Events from main process
   onShowPreferences: callback => ipcRenderer.on('show-preferences', callback),
+  onShowPreferencesFirstRun: callback => ipcRenderer.on('show-preferences-first-run', callback),
   onCopyTranscript: callback => ipcRenderer.on('copy-transcript', callback),
   onToggleOverlay: callback => ipcRenderer.on('toggle-overlay', callback),
   onTranscriptWindowClosed: callback => ipcRenderer.on('transcript-window-closed', callback),
   onArchiveWindowClosed: callback => ipcRenderer.on('archive-window-closed', callback),
+  onSettingsWindowClosed: callback => ipcRenderer.on('settings-window-closed', callback),
+
+  // Settings operations
+  getSettings: () => ipcRenderer.invoke('get-settings'),
+  saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
+  applyTheme: (theme) => ipcRenderer.invoke('apply-theme', theme),
+  getAvailableModels: () => ipcRenderer.invoke('get-available-models'),
+  downloadTranscriptionModel: (model) => ipcRenderer.invoke('download-transcription-model', model),
+  downloadSummarizationModel: (model) => ipcRenderer.invoke('download-summarization-model', model),
+  downloadTranslationModel: (model) => ipcRenderer.invoke('download-translation-model', model),
+  onThemeChanged: (callback) => ipcRenderer.on('theme-changed', callback),
 
   // Remove listeners
   removeAllListeners: channel => ipcRenderer.removeAllListeners(channel),

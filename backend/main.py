@@ -564,19 +564,7 @@ async def handle_websocket_message(websocket: WebSocket, message: Dict):
             await websocket.send_text(json.dumps(status_response))
             logger.info(f"📊 Status queried: recording={is_recording}, session={current_session_id}, source=microphone, transcript_chars={len(current_session_transcript)}")
                 
-        elif message_type == "download_model":
-            model_name = message.get("model")
-            if transcription_engine and model_name:
-                await transcription_engine.download_model(model_name, 
-                    progress_callback=lambda p: asyncio.create_task(
-                        websocket.send_text(json.dumps({
-                            "type": "model_download_progress",
-                            "model": model_name,
-                            "progress": p
-                        }))
-                    )
-                )
-                
+
         elif message_type == "get_session_summary":
             session_id = message.get("session_id")
             if database and session_id:
@@ -671,6 +659,82 @@ async def handle_websocket_message(websocket: WebSocket, message: Dict):
                     "loaded": model_info["is_loaded"],
                     "model_name": model_info["model_name"],
                     "supported_languages": model_info["supported_languages"]
+                }))
+                
+        elif message_type == "update_settings":
+            settings = message.get("settings")
+            if settings:
+                logger.info(f"Received settings update: {settings}")
+                # Update engines with new settings
+                if transcription_engine and "transcriptionModel" in settings:
+                    await transcription_engine.switch_model(settings["transcriptionModel"])
+                
+                if summarization_engine and "summarizationModel" in settings:
+                    # Switch summarization model tier
+                    from llm_engine import get_engine
+                    llm_engine = get_engine()
+                    await llm_engine.switch_tier(settings["summarizationModel"])
+                
+                if translation_engine and "translationModel" in settings:
+                    # Switch translation model tier
+                    from llm_engine import get_engine
+                    llm_engine = get_engine()
+                    await llm_engine.switch_tier(settings["translationModel"])
+                
+                await websocket.send_text(json.dumps({
+                    "type": "settings_updated",
+                    "success": True
+                }))
+                
+        elif message_type == "download_model":
+            model_type = message.get("model_type")
+            model = message.get("model")
+            
+            if model_type == "transcription" and transcription_engine:
+                success = await transcription_engine.download_model(model)
+                await websocket.send_text(json.dumps({
+                    "type": "model_download_result",
+                    "model_type": model_type,
+                    "model": model,
+                    "success": success
+                }))
+                
+            elif model_type == "summarization" and summarization_engine:
+                from llm_engine import get_engine
+                llm_engine = get_engine()
+                success = await llm_engine.ensure_model_ready(model)
+                await websocket.send_text(json.dumps({
+                    "type": "model_download_result",
+                    "model_type": model_type,
+                    "model": model,
+                    "success": success
+                }))
+                
+            elif model_type == "translation" and translation_engine:
+                from llm_engine import get_engine
+                llm_engine = get_engine()
+                success = await llm_engine.ensure_model_ready(model)
+                await websocket.send_text(json.dumps({
+                    "type": "model_download_result",
+                    "model_type": model_type,
+                    "model": model,
+                    "success": success
+                }))
+                
+        elif message_type == "get_llm_models":
+            try:
+                from llm_engine import get_engine
+                llm_engine = get_engine()
+                available_tiers = llm_engine.get_available_tiers()
+                await websocket.send_text(json.dumps({
+                    "type": "llm_models",
+                    "models": available_tiers
+                }))
+            except Exception as e:
+                logger.error(f"Error getting LLM models: {e}")
+                await websocket.send_text(json.dumps({
+                    "type": "llm_models",
+                    "models": []
                 }))
                 
         else:

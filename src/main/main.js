@@ -12,6 +12,7 @@ import Store from 'electron-store'
 import { spawn } from 'child_process'
 import WebSocket from 'ws'
 import fs from 'fs'
+import os from 'os'
 import { fileURLToPath } from 'url'
 import { dirname } from 'path'
 
@@ -24,6 +25,7 @@ const store = new Store()
 let mainWindow
 let transcriptWindow
 let archiveWindow
+let settingsWindow
 let tray
 let backendProcess
 let wsConnection
@@ -60,6 +62,101 @@ let globalAppState = {
 }
 
 const isDev = !app.isPackaged
+// Settings file management
+function getSettingsPath() {
+  if (process.platform === 'win32') {
+    return path.join(process.env.APPDATA || os.homedir(), 'EchoTap', 'settings.json')
+  } else if (process.platform === 'darwin') {
+    return path.join(os.homedir(), 'Library', 'Application Support', 'EchoTap', 'settings.json')
+  } else {
+    return path.join(os.homedir(), '.config', 'EchoTap', 'settings.json')
+  }
+}
+
+function ensureSettingsDir() {
+  const settingsPath = getSettingsPath()
+  const settingsDir = path.dirname(settingsPath)
+  if (!fs.existsSync(settingsDir)) {
+    fs.mkdirSync(settingsDir, { recursive: true })
+  }
+  return settingsPath
+}
+
+function getDefaultSettings() {
+  return {
+    theme: 'system',
+    transcriptionModel: 'base',
+    summarizationModel: 'balanced',
+    translationModel: 'balanced',
+    audioSource: 'system',
+    language: 'auto',
+    vadSensitivity: 50,
+    copyMode: 'current',
+    copyMinutes: 5,
+    overlayFontSize: 16,
+    shortcuts: {
+      startStop: 'Alt+Shift+S',
+      copy: 'Alt+Shift+C',
+      toggleOverlay: 'Alt+Shift+O',
+    },
+    checkForUpdates: false,
+    telemetry: false,
+  }
+}
+
+function loadSettings() {
+  try {
+    const settingsPath = ensureSettingsDir()
+    if (fs.existsSync(settingsPath)) {
+      const settingsData = fs.readFileSync(settingsPath, 'utf-8')
+      const settings = JSON.parse(settingsData)
+      // Merge with defaults to ensure all properties exist
+      return { ...getDefaultSettings(), ...settings }
+    } else {
+      // First run - create settings file with defaults
+      const defaultSettings = getDefaultSettings()
+      fs.writeFileSync(settingsPath, JSON.stringify(defaultSettings, null, 2))
+      return defaultSettings
+    }
+  } catch (error) {
+    console.error('Failed to load settings:', error)
+    return getDefaultSettings()
+  }
+}
+
+function saveSettings(settings) {
+  try {
+    const settingsPath = ensureSettingsDir()
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2))
+    return true
+  } catch (error) {
+    console.error('Failed to save settings:', error)
+    return false
+  }
+}
+
+function isFirstRun() {
+  const settingsPath = getSettingsPath()
+  return !fs.existsSync(settingsPath)
+}
+
+// Global settings state
+let globalSettings = loadSettings()
+
+// Theme management
+function updateAppTheme(theme) {
+  try {
+    // Apply theme to all windows
+    const windows = [mainWindow, transcriptWindow, archiveWindow].filter(w => w && !w.isDestroyed())
+    windows.forEach(window => {
+      if (window.webContents && !window.webContents.isDestroyed()) {
+        window.webContents.send('theme-changed', theme)
+      }
+    })
+  } catch (error) {
+    console.error('Error updating app theme:', error)
+  }
+}
 
 // Global State Management Functions
 function updateAppState(updates) {
@@ -298,6 +395,16 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     mainWindow.show()
     setupWebSocketConnection()
+    
+    // Check for first run and open settings
+    if (isFirstRun()) {
+      console.log('First run detected, opening settings window')
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send('show-preferences-first-run')
+        }
+      }, 1000) // Delay to ensure main window is fully loaded
+    }
   })
 
   // Save window bounds on move/resize
@@ -457,6 +564,68 @@ function createArchiveWindow() {
       }
     }
     archiveWindow = null
+  })
+}
+
+function createSettingsWindow() {
+  if (settingsWindow) {
+    settingsWindow.focus()
+    return
+  }
+
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize
+
+  settingsWindow = new BrowserWindow({
+    width: 600,
+    height: 500,
+    x: Math.round((width - 600) / 2),
+    y: Math.round((height - 500) / 2),
+    minWidth: 500,
+    minHeight: 400,
+    frame: false,
+    alwaysOnTop: true,
+    resizable: true,
+    movable: true,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    show: false,
+    transparent: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+      backgroundThrottling: false,
+    },
+  })
+
+  // Load dedicated settings window content
+  if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
+    // In development, use query param to show settings mode
+    const settingsUrl = `${process.env.ELECTRON_RENDERER_URL}?mode=settings`
+    console.log('Loading settings URL:', settingsUrl)
+    settingsWindow.loadURL(settingsUrl)
+  } else {
+    // In production, load the settings.html file
+    const settingsPath = path.join(__dirname, '../settings.html')
+    console.log('Loading settings from:', settingsPath)
+    settingsWindow.loadFile(settingsPath)
+  }
+
+  settingsWindow.once('ready-to-show', () => {
+    settingsWindow.show()
+  })
+
+  settingsWindow.on('closed', () => {
+    // Notify main window that settings window was closed
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+      try {
+        mainWindow.webContents.send('settings-window-closed')
+      } catch (error) {
+        console.warn('Failed to send settings-window-closed event:', error.message)
+      }
+    }
+    settingsWindow = null
   })
 }
 
@@ -931,6 +1100,10 @@ ipcMain.handle('show-archive', () => {
   createArchiveWindow()
 })
 
+ipcMain.handle('show-settings', () => {
+  createSettingsWindow()
+})
+
 ipcMain.handle('close-transcript', () => {
   if (transcriptWindow) {
     transcriptWindow.close()
@@ -940,5 +1113,120 @@ ipcMain.handle('close-transcript', () => {
 ipcMain.handle('close-archive', () => {
   if (archiveWindow) {
     archiveWindow.close()
+  }
+})
+
+ipcMain.handle('close-settings', () => {
+  if (settingsWindow) {
+    settingsWindow.close()
+  }
+})
+
+// Settings IPC handlers
+ipcMain.handle('get-settings', () => {
+  return globalSettings
+})
+
+ipcMain.handle('save-settings', (event, settings) => {
+  try {
+    globalSettings = { ...globalSettings, ...settings }
+    const success = saveSettings(globalSettings)
+    if (success) {
+      // Apply theme changes immediately
+      updateAppTheme(settings.theme)
+      return { success: true }
+    } else {
+      return { success: false, error: 'Failed to save settings to file' }
+    }
+  } catch (error) {
+    console.error('Error saving settings:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('apply-theme', (event, theme) => {
+  try {
+    updateAppTheme(theme)
+    return { success: true }
+  } catch (error) {
+    console.error('Error applying theme:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('get-available-models', async () => {
+  try {
+    // In a real implementation, this would query the backend for available models
+    // For now, return the hardcoded model tiers from the backend
+    const summarizationModels = [
+      { tier: 'minimal', name: 'TinyLlama-1.1B-Chat', size_mb: 600, description: 'Lightweight model for resource-constrained systems' },
+      { tier: 'balanced', name: 'Phi-3.5-Mini-Instruct', size_mb: 2300, description: 'Balanced performance and resource usage' },
+      { tier: 'quality', name: 'Qwen2.5-3B-Instruct', size_mb: 1900, description: 'High quality model for capable systems' }
+    ]
+    
+    return {
+      summarization: summarizationModels,
+      translation: summarizationModels // Same models for both for now
+    }
+  } catch (error) {
+    console.error('Error getting available models:', error)
+    return { summarization: [], translation: [] }
+  }
+})
+
+ipcMain.handle('download-transcription-model', async (event, model) => {
+  try {
+    // Send model download request to backend
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      wsConnection.send(JSON.stringify({ 
+        type: 'download_model',
+        model_type: 'transcription',
+        model: model
+      }))
+      return { success: true }
+    } else {
+      return { success: false, error: 'Backend not connected' }
+    }
+  } catch (error) {
+    console.error('Error downloading transcription model:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('download-summarization-model', async (event, model) => {
+  try {
+    // Send model download request to backend
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      wsConnection.send(JSON.stringify({ 
+        type: 'download_model',
+        model_type: 'summarization',
+        model: model
+      }))
+      return { success: true }
+    } else {
+      return { success: false, error: 'Backend not connected' }
+    }
+  } catch (error) {
+    console.error('Error downloading summarization model:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('download-translation-model', async (event, model) => {
+  try {
+    // Send model download request to backend
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      wsConnection.send(JSON.stringify({ 
+        type: 'download_model',
+        model_type: 'translation',
+        model: model
+      }))
+      return { success: true }
+    } else {
+      return { success: false, error: 'Backend not connected' }
+    }
+  } catch (error) {
+    console.error('Error downloading translation model:', error)
+    return { success: false, error: error.message }
   }
 })
