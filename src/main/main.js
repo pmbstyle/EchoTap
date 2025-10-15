@@ -86,21 +86,7 @@ function getDefaultSettings() {
   return {
     theme: 'system',
     transcriptionModel: 'base',
-    summarizationModel: 'balanced',
-    translationModel: 'balanced',
-    audioSource: 'system',
     language: 'auto',
-    vadSensitivity: 50,
-    copyMode: 'current',
-    copyMinutes: 5,
-    overlayFontSize: 16,
-    shortcuts: {
-      startStop: 'Alt+Shift+S',
-      copy: 'Alt+Shift+C',
-      toggleOverlay: 'Alt+Shift+O',
-    },
-    checkForUpdates: false,
-    telemetry: false,
   }
 }
 
@@ -222,6 +208,19 @@ function handleBackendMessage(message) {
         isRecording: false,
         currentSessionId: null,
       })
+      // Forward recording_stopped to all windows for clipboard copy
+      const allWindows = [mainWindow, transcriptWindow, archiveWindow].filter(
+        w => w && !w.isDestroyed()
+      )
+      allWindows.forEach(window => {
+        try {
+          if (window.webContents && !window.webContents.isDestroyed()) {
+            window.webContents.send('backend-message', message)
+          }
+        } catch (error) {
+          console.warn('Failed to send recording_stopped to window:', error.message)
+        }
+      })
       break
 
     case 'partial_transcript':
@@ -230,6 +229,18 @@ function handleBackendMessage(message) {
         displayText: message.text,
         isFinal: false,
       })
+      // Forward to all windows for real-time display
+      ;[mainWindow, transcriptWindow, archiveWindow]
+        .filter(w => w && !w.isDestroyed())
+        .forEach(window => {
+          try {
+            if (window.webContents && !window.webContents.isDestroyed()) {
+              window.webContents.send('backend-message', message)
+            }
+          } catch (error) {
+            console.warn('Failed to send partial_transcript to window:', error.message)
+          }
+        })
       break
 
     case 'final_transcript':
@@ -244,6 +255,18 @@ function handleBackendMessage(message) {
         partialText: message.text,
         isFinal: true,
       })
+      // Forward to all windows for real-time display
+      ;[mainWindow, transcriptWindow, archiveWindow]
+        .filter(w => w && !w.isDestroyed())
+        .forEach(window => {
+          try {
+            if (window.webContents && !window.webContents.isDestroyed()) {
+              window.webContents.send('backend-message', message)
+            }
+          } catch (error) {
+            console.warn('Failed to send final_transcript to window:', error.message)
+          }
+        })
       break
 
     case 'backend_status':
@@ -654,6 +677,20 @@ function setupWebSocketConnection() {
     console.log('✅ Connected to backend WebSocket at ws://127.0.0.1:8888/ws')
     // Update global state instead of sending individual messages
     updateAppState({ isConnected: true })
+    
+    // Send current settings to backend on connection
+    try {
+      wsConnection.send(JSON.stringify({
+        type: 'update_settings',
+        settings: {
+          transcriptionModel: globalSettings.transcriptionModel,
+          language: globalSettings.language,
+        }
+      }))
+      console.log(`📤 Sent settings to backend: model=${globalSettings.transcriptionModel}, language=${globalSettings.language}`)
+    } catch (error) {
+      console.error('Failed to send settings to backend:', error)
+    }
   })
 
   wsConnection.on('message', data => {
@@ -764,37 +801,24 @@ function createTray() {
 function registerGlobalShortcuts() {
   // Default shortcuts
   const shortcuts = store.get('shortcuts', {
-    startStop: 'Alt+Shift+S',
-    copy: 'Alt+Shift+C',
-    toggleOverlay: 'Alt+Shift+O',
+    toggleRecording: 'CommandOrControl+Shift+R',  // More intuitive shortcut for toggle recording
   })
 
   try {
-    globalShortcut.register(shortcuts.startStop, () => {
-      if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-        wsConnection.send(JSON.stringify({ type: 'toggle_recording' }))
-      }
-    })
-
-    globalShortcut.register(shortcuts.copy, () => {
-      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
-        try {
-          mainWindow.webContents.send('copy-transcript')
-        } catch (error) {
-          console.warn('Failed to send copy-transcript message:', error.message)
+    // Register toggle recording shortcut
+    if (shortcuts.toggleRecording) {
+      const registered = globalShortcut.register(shortcuts.toggleRecording, () => {
+        if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+          wsConnection.send(JSON.stringify({ type: 'toggle_recording' }))
         }
+      })
+      
+      if (registered) {
+        console.log(`✅ Global shortcut registered: ${shortcuts.toggleRecording} for toggle recording`)
+      } else {
+        console.warn(`⚠️ Failed to register shortcut ${shortcuts.toggleRecording} (may be in use by another app)`)
       }
-    })
-
-    globalShortcut.register(shortcuts.toggleOverlay, () => {
-      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
-        try {
-          mainWindow.webContents.send('toggle-overlay')
-        } catch (error) {
-          console.warn('Failed to send toggle-overlay message:', error.message)
-        }
-      }
-    })
+    }
   } catch (error) {
     console.error('Failed to register global shortcuts:', error)
   }
@@ -1134,6 +1158,15 @@ ipcMain.handle('save-settings', (event, settings) => {
     if (success) {
       // Apply theme changes immediately
       updateAppTheme(settings.theme)
+      
+      // Re-register global shortcuts if shortcuts were changed
+      const shortcuts = store.get('shortcuts')
+      if (shortcuts) {
+        globalShortcut.unregisterAll()
+        registerGlobalShortcuts()
+        console.log('🔄 Global shortcuts re-registered')
+      }
+      
       return { success: true }
     } else {
       return { success: false, error: 'Failed to save settings to file' }
@@ -1150,83 +1183,6 @@ ipcMain.handle('apply-theme', (event, theme) => {
     return { success: true }
   } catch (error) {
     console.error('Error applying theme:', error)
-    return { success: false, error: error.message }
-  }
-})
-
-ipcMain.handle('get-available-models', async () => {
-  try {
-    // In a real implementation, this would query the backend for available models
-    // For now, return the hardcoded model tiers from the backend
-    const summarizationModels = [
-      { tier: 'minimal', name: 'TinyLlama-1.1B-Chat', size_mb: 600, description: 'Lightweight model for resource-constrained systems' },
-      { tier: 'balanced', name: 'Phi-3.5-Mini-Instruct', size_mb: 2300, description: 'Balanced performance and resource usage' },
-      { tier: 'quality', name: 'Qwen2.5-3B-Instruct', size_mb: 1900, description: 'High quality model for capable systems' }
-    ]
-    
-    return {
-      summarization: summarizationModels,
-      translation: summarizationModels // Same models for both for now
-    }
-  } catch (error) {
-    console.error('Error getting available models:', error)
-    return { summarization: [], translation: [] }
-  }
-})
-
-ipcMain.handle('download-transcription-model', async (event, model) => {
-  try {
-    // Send model download request to backend
-    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-      wsConnection.send(JSON.stringify({ 
-        type: 'download_model',
-        model_type: 'transcription',
-        model: model
-      }))
-      return { success: true }
-    } else {
-      return { success: false, error: 'Backend not connected' }
-    }
-  } catch (error) {
-    console.error('Error downloading transcription model:', error)
-    return { success: false, error: error.message }
-  }
-})
-
-ipcMain.handle('download-summarization-model', async (event, model) => {
-  try {
-    // Send model download request to backend
-    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-      wsConnection.send(JSON.stringify({ 
-        type: 'download_model',
-        model_type: 'summarization',
-        model: model
-      }))
-      return { success: true }
-    } else {
-      return { success: false, error: 'Backend not connected' }
-    }
-  } catch (error) {
-    console.error('Error downloading summarization model:', error)
-    return { success: false, error: error.message }
-  }
-})
-
-ipcMain.handle('download-translation-model', async (event, model) => {
-  try {
-    // Send model download request to backend
-    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-      wsConnection.send(JSON.stringify({ 
-        type: 'download_model',
-        model_type: 'translation',
-        model: model
-      }))
-      return { success: true }
-    } else {
-      return { success: false, error: 'Backend not connected' }
-    }
-  } catch (error) {
-    console.error('Error downloading translation model:', error)
     return { success: false, error: error.message }
   }
 })

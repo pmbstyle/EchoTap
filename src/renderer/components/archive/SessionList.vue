@@ -24,11 +24,7 @@
           </div>
           <div class="text-xs text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-2">
             <span>{{ session.source }} • {{ formatDuration(session.duration) }} min</span>
-            <div
-              v-if="session.has_summary"
-              class="w-1.5 h-1.5 bg-blue-500 rounded-full"
-              title="Summary available"
-            ></div>
+
           </div>
           <div class="text-sm text-gray-600 dark:text-gray-400 truncate">
             {{ session.preview || 'No transcript available' }}

@@ -18,9 +18,10 @@ librosa>=0.10.0
 faster-whisper>=0.9.0
 webrtcvad>=2.0.10
 
-# LLM dependencies  
-llama-cpp-python>=0.3.0
-requests>=2.31.0
+# PyTorch for GPU acceleration (CUDA support)
+# Install with: pip install torch --index-url https://download.pytorch.org/whl/cu121
+# Or for CPU-only: pip install torch
+torch>=2.0.0
 
 # System resource detection
 psutil>=5.9.0
@@ -39,9 +40,6 @@ pyobjc-framework-CoreAudio>=9.0; sys_platform == "darwin"
 
 # Linux-specific
 pulsectl>=22.3.2; sys_platform == "linux"
-
-# Optional: PyTorch for GPU acceleration (CPU-only by default)
-# torch>=2.0.0; extra == "gpu"
 
 # Testing dependencies
 pytest>=7.4.0

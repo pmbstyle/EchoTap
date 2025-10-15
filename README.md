@@ -49,6 +49,23 @@ npm run setup
 npm run dev
 ```
 
+### GPU Acceleration (Optional, Recommended)
+
+For **4-10x faster transcription**, install PyTorch with CUDA support:
+
+```bash
+# Navigate to backend directory
+cd backend
+
+# Install CUDA-enabled PyTorch (requires NVIDIA GPU)
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+
+# Verify GPU is detected
+python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
+```
+
+**Note:** If you don't have an NVIDIA GPU, the app will automatically use CPU (slower but works fine).
+
 ### First Run
 
 On first launch, EchoTap automatically downloads the faster-whisper large-v3-turbo model (~1.5GB). This enables completely offline transcription afterward.

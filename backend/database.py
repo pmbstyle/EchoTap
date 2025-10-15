@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import List, Dict, Optional, Any
 from pathlib import Path
 
-from models import SessionData, TranscriptSegment, SessionSummary, TranscriptionStats
+from models import SessionData, TranscriptSegment, TranscriptionStats
 
 logger = logging.getLogger(__name__)
 
@@ -80,42 +80,6 @@ class DatabaseManager:
             )
         """)
         
-        # Session summaries table
-        await self.db.execute("""
-            CREATE TABLE IF NOT EXISTS session_summaries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL UNIQUE,
-                summary TEXT NOT NULL,
-                original_length INTEGER NOT NULL,
-                summary_length INTEGER NOT NULL,
-                original_words INTEGER NOT NULL,
-                summary_words INTEGER NOT NULL,
-                compression_ratio REAL NOT NULL,
-                generation_time REAL NOT NULL,
-                model TEXT NOT NULL,
-                created_at TIMESTAMP NOT NULL,
-                FOREIGN KEY (session_id) REFERENCES sessions (id)
-            )
-        """)
-        
-        # Session translations table
-        await self.db.execute("""
-            CREATE TABLE IF NOT EXISTS session_translations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL,
-                target_language TEXT NOT NULL,
-                translated_transcript TEXT NOT NULL,
-                translated_summary TEXT,
-                original_transcript_length INTEGER NOT NULL,
-                translated_transcript_length INTEGER NOT NULL,
-                generation_time REAL NOT NULL,
-                model TEXT NOT NULL,
-                created_at TIMESTAMP NOT NULL,
-                UNIQUE(session_id, target_language),
-                FOREIGN KEY (session_id) REFERENCES sessions (id)
-            )
-        """)
-        
         # User preferences table
         await self.db.execute("""
             CREATE TABLE IF NOT EXISTS preferences (
@@ -147,9 +111,6 @@ class DatabaseManager:
             "CREATE INDEX IF NOT EXISTS idx_transcript_session ON transcript_segments (session_id)",
             "CREATE INDEX IF NOT EXISTS idx_transcript_time ON transcript_segments (start_time, end_time)",
             "CREATE INDEX IF NOT EXISTS idx_models_last_used ON downloaded_models (last_used DESC)",
-            "CREATE INDEX IF NOT EXISTS idx_summaries_session ON session_summaries (session_id)",
-            "CREATE INDEX IF NOT EXISTS idx_translations_session ON session_translations (session_id)",
-            "CREATE INDEX IF NOT EXISTS idx_translations_language ON session_translations (target_language)"
         ]
         
         for index_sql in indexes:
@@ -512,185 +473,4 @@ class DatabaseManager:
         secs = seconds % 60
         return f"{minutes:02d}:{secs:06.3f}"
     
-    async def save_session_summary(
-        self, 
-        session_id: str, 
-        summary_data: Dict[str, Any]
-    ) -> bool:
-        """Save a generated summary for a session"""
-        try:
-            await self.db.execute("""
-                INSERT OR REPLACE INTO session_summaries (
-                    session_id, summary, original_length, summary_length,
-                    original_words, summary_words, compression_ratio,
-                    generation_time, model, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                session_id,
-                summary_data['summary'],
-                summary_data['original_length'],
-                summary_data['summary_length'],
-                summary_data['original_words'],
-                summary_data['summary_words'],
-                summary_data['compression_ratio'],
-                summary_data['generation_time'],
-                summary_data['model'],
-                summary_data['created_at']
-            ))
-            
-            await self.db.commit()
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to save session summary: {e}")
-            await self.db.rollback()
-            return False
     
-    async def get_session_summary(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """Get the summary for a session"""
-        cursor = await self.db.execute("""
-            SELECT * FROM session_summaries WHERE session_id = ?
-        """, (session_id,))
-        
-        result = await cursor.fetchone()
-        if result:
-            return dict(result)
-        return None
-    
-    async def get_sessions_with_summaries(self, limit: int = 100, offset: int = 0) -> List[Dict]:
-        """Get list of sessions with their summaries for archive view"""
-        
-        cursor = await self.db.execute("""
-            SELECT 
-                s.id,
-                s.source,
-                s.model,
-                s.language,
-                s.created_at,
-                s.duration,
-                s.word_count,
-                s.average_confidence,
-                (
-                    SELECT text 
-                    FROM transcript_segments ts 
-                    WHERE ts.session_id = s.id 
-                    ORDER BY start_time 
-                    LIMIT 1
-                ) as first_segment,
-                (
-                    SELECT COUNT(*) 
-                    FROM transcript_segments ts 
-                    WHERE ts.session_id = s.id
-                ) as segment_count,
-                ss.summary_words,
-                ss.compression_ratio,
-                ss.generation_time,
-                ss.model as summary_model,
-                CASE WHEN ss.summary IS NOT NULL THEN 1 ELSE 0 END as has_summary
-            FROM sessions s
-            LEFT JOIN session_summaries ss ON s.id = ss.session_id
-            WHERE s.completed_at IS NOT NULL
-            ORDER BY s.created_at DESC
-            LIMIT ? OFFSET ?
-        """, (limit, offset))
-        
-        sessions = []
-        async for row in cursor:
-            # Create preview text
-            preview = row['first_segment'] or ""
-            if len(preview) > 100:
-                preview = preview[:97] + "..."
-                
-            sessions.append({
-                "id": row['id'],
-                "created_at": row['created_at'],
-                "source": row['source'],
-                "duration": row['duration'] or 0,
-                "model": row['model'],
-                "preview": preview,
-                "word_count": row['word_count'] or 0,
-                "segment_count": row['segment_count'] or 0,
-                "average_confidence": row['average_confidence'] or 0.0,
-                "summary_words": row['summary_words'],
-                "compression_ratio": row['compression_ratio'],
-                "generation_time": row['generation_time'],
-                "summary_model": row['summary_model'],
-                "has_summary": bool(row['has_summary'])
-            })
-            
-        return sessions
-    
-    async def save_session_translation(
-        self, 
-        session_id: str,
-        target_language: str, 
-        translation_data: Dict[str, Any]
-    ) -> bool:
-        """Save a translation for a session"""
-        try:
-            await self.db.execute("""
-                INSERT OR REPLACE INTO session_translations (
-                    session_id, target_language, translated_transcript, translated_summary,
-                    original_transcript_length, translated_transcript_length,
-                    generation_time, model, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                session_id,
-                target_language,
-                translation_data['translated_transcript'],
-                translation_data.get('translated_summary'),
-                translation_data['original_transcript_length'],
-                translation_data['translated_transcript_length'],
-                translation_data['generation_time'],
-                translation_data['model'],
-                translation_data['created_at']
-            ))
-            
-            await self.db.commit()
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to save session translation: {e}")
-            await self.db.rollback()
-            return False
-    
-    async def get_session_translation(self, session_id: str, target_language: str) -> Optional[Dict[str, Any]]:
-        """Get the translation for a session in a specific language"""
-        cursor = await self.db.execute("""
-            SELECT * FROM session_translations 
-            WHERE session_id = ? AND target_language = ?
-        """, (session_id, target_language))
-        
-        result = await cursor.fetchone()
-        if result:
-            return dict(result)
-        return None
-    
-    async def get_session_translations(self, session_id: str) -> List[Dict[str, Any]]:
-        """Get all translations for a session"""
-        cursor = await self.db.execute("""
-            SELECT * FROM session_translations 
-            WHERE session_id = ?
-            ORDER BY created_at DESC
-        """, (session_id,))
-        
-        translations = []
-        async for row in cursor:
-            translations.append(dict(row))
-        return translations
-    
-    async def delete_session_translation(self, session_id: str, target_language: str) -> bool:
-        """Delete a specific translation for a session"""
-        try:
-            cursor = await self.db.execute("""
-                DELETE FROM session_translations 
-                WHERE session_id = ? AND target_language = ?
-            """, (session_id, target_language))
-            
-            await self.db.commit()
-            return cursor.rowcount > 0
-            
-        except Exception as e:
-            logger.error(f"Failed to delete session translation: {e}")
-            await self.db.rollback()
-            return False

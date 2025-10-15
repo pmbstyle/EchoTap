@@ -79,37 +79,7 @@
           <SessionDetail
             ref="sessionDetail"
             :session="selectedSession"
-            :summary-generating="summaryGenerating"
-            :current-translation="currentTranslation"
-            :selected-language="selectedLanguage"
-            :show-original="showOriginal"
-            :supported-languages="supportedLanguages"
-            @generate-summary="generateSummary"
-            @regenerate-summary="regenerateSummary"
-            @update:show-original="showOriginal = $event"
-            @translate="handleTranslationFromTab"
-          >
-            <template #transcript-actions>
-              <!-- Translation controls for transcript tab -->
-              <TranslationControls
-                :selected-language="selectedLanguage"
-                :supported-languages="supportedLanguages"
-                :is-translating="translationGenerating"
-                @update:selected-language="onLanguageChange"
-                @translate="handleTranslate"
-              />
-            </template>
-            <template #summary-actions>
-              <!-- Translation controls for summary tab -->
-              <TranslationControls
-                :selected-language="selectedLanguage"
-                :supported-languages="supportedLanguages"
-                :is-translating="translationGenerating"
-                @update:selected-language="onLanguageChange"
-                @translate="handleTranslate"
-              />
-            </template>
-          </SessionDetail>
+          />
         </div>
       </div>
     </div>
@@ -117,37 +87,22 @@
 </template>
 
 <script>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
-import { useTranscriptionStore } from '../stores/transcription'
+import { ref, onMounted, onUnmounted } from 'vue'
 import SessionList from './archive/SessionList.vue'
 import SessionDetail from './archive/SessionDetail.vue'
-import TranslationControls from './archive/TranslationControls.vue'
 
 export default {
   name: 'ArchiveWindow',
   components: {
     SessionList,
-    SessionDetail,
-    TranslationControls
+    SessionDetail
   },
   setup() {
-    const transcriptionStore = useTranscriptionStore()
-    
     // Main state
     const sessions = ref([])
     const currentView = ref('list')
     const selectedSession = ref(null)
     const sessionDetail = ref(null)
-    
-    // Summary state
-    const summaryGenerating = ref(false)
-    
-    // Translation state
-    const supportedLanguages = ref([])
-    const selectedLanguage = ref('')
-    const currentTranslation = ref(null)
-    const translationGenerating = ref(false)
-    const showOriginal = ref(true)
 
     // WebSocket message handler
     const handleBackendMessage = message => {
@@ -160,94 +115,14 @@ export default {
             selectedSession.value.fullText = message.transcript?.full_text || ''
           }
           break
-        case 'session_summary':
-          if (selectedSession.value && selectedSession.value.id === message.session_id) {
-            if (message.summary) {
-              selectedSession.value.summary = message.summary.summary
-              selectedSession.value.summary_words = message.summary.summary_words
-              selectedSession.value.compression_ratio = message.summary.compression_ratio
-              selectedSession.value.summary_model = message.summary.model
-              selectedSession.value.has_summary = true
-            }
-          }
-          break
-        case 'summary_generated':
-          updateSessionSummary(message)
-          break
-        case 'summary_generation_result':
-          if (selectedSession.value && selectedSession.value.id === message.session_id) {
-            summaryGenerating.value = false
-            if (!message.success) {
-              console.error('Failed to generate summary')
-            }
-          }
-          break
         case 'session_deleted':
-          handleSessionDeleted(message)
-          break
-        case 'supported_languages':
-          supportedLanguages.value = message.languages || []
-          break
-        case 'translation_result':
-          handleTranslationResult(message)
-          break
-        case 'session_translation':
-          if (selectedSession.value && selectedSession.value.id === message.session_id) {
-            currentTranslation.value = message.translation
-            if (message.translation) {
-              showOriginal.value = false // Show translation by default when loaded
+          if (message.success) {
+            sessions.value = sessions.value.filter(s => s.id !== message.session_id)
+            if (selectedSession.value && selectedSession.value.id === message.session_id) {
+              goBack()
             }
           }
           break
-        case 'translation_generated':
-          handleTranslationGenerated(message)
-          break
-      }
-    }
-
-    // Helper functions for message handling
-    const updateSessionSummary = (message) => {
-      // Update session in list
-      const sessionIndex = sessions.value.findIndex(s => s.id === message.session_id)
-      if (sessionIndex !== -1) {
-        sessions.value[sessionIndex].has_summary = true
-        sessions.value[sessionIndex].compression_ratio = message.compression_ratio
-      }
-
-      // Update selected session
-      if (selectedSession.value && selectedSession.value.id === message.session_id) {
-        selectedSession.value.summary = message.summary
-        selectedSession.value.compression_ratio = message.compression_ratio
-        selectedSession.value.has_summary = true
-        summaryGenerating.value = false
-      }
-    }
-
-    const handleSessionDeleted = (message) => {
-      if (message.success) {
-        sessions.value = sessions.value.filter(s => s.id !== message.session_id)
-        if (selectedSession.value && selectedSession.value.id === message.session_id) {
-          goBack()
-        }
-      }
-    }
-
-    const handleTranslationResult = (message) => {
-      if (selectedSession.value && selectedSession.value.id === message.session_id) {
-        translationGenerating.value = false
-        if (message.success) {
-          loadSessionTranslation(message.session_id, message.target_language)
-        }
-      }
-    }
-
-    const handleTranslationGenerated = (message) => {
-      if (selectedSession.value && selectedSession.value.id === message.session_id) {
-        translationGenerating.value = false
-        if (selectedLanguage.value === message.target_language || !selectedLanguage.value) {
-          selectedLanguage.value = message.target_language
-          loadSessionTranslation(message.session_id, message.target_language)
-        }
       }
     }
 
@@ -263,37 +138,10 @@ export default {
       }
     }
 
-    const loadSupportedLanguages = async () => {
-      try {
-        await window.electronAPI.sendToBackend({
-          type: 'get_supported_languages',
-        })
-      } catch (error) {
-        console.error('Failed to load supported languages:', error)
-      }
-    }
-
-    const loadSessionTranslation = async (sessionId, targetLanguage) => {
-      try {
-        await window.electronAPI.sendToBackend({
-          type: 'get_session_translation',
-          session_id: sessionId,
-          target_language: targetLanguage,
-        })
-      } catch (error) {
-        console.error('Failed to load session translation:', error)
-      }
-    }
-
     // Navigation functions
     const viewSession = async (session) => {
       selectedSession.value = session
       currentView.value = 'detail'
-      
-      // Reset translation state
-      selectedLanguage.value = ''
-      currentTranslation.value = null
-      showOriginal.value = true
 
       // Load transcript if not already loaded
       if (!session.fullText) {
@@ -306,27 +154,11 @@ export default {
           console.error('Failed to load session transcript:', error)
         }
       }
-
-      // Load summary if available
-      if (session.has_summary) {
-        try {
-          await window.electronAPI.sendToBackend({
-            type: 'get_session_summary',
-            session_id: session.id,
-          })
-        } catch (error) {
-          console.error('Failed to load session summary:', error)
-        }
-      }
     }
 
     const goBack = () => {
       currentView.value = 'list'
       selectedSession.value = null
-      // Reset translation state
-      selectedLanguage.value = ''
-      currentTranslation.value = null
-      showOriginal.value = true
     }
 
     // Action functions
@@ -340,17 +172,9 @@ export default {
     }
 
     const copyCurrentContent = async () => {
-      if (!selectedSession.value || !sessionDetail.value) return
+      if (!selectedSession.value) return
 
-      // Get current content from SessionDetail component
-      let textToCopy = ''
-      try {
-        textToCopy = sessionDetail.value.getCurrentContent()
-      } catch (error) {
-        console.warn('Could not get current content from SessionDetail, falling back to transcript')
-        textToCopy = selectedSession.value.fullText || selectedSession.value.preview || ''
-      }
-
+      const textToCopy = selectedSession.value.fullText || selectedSession.value.preview || ''
       try {
         await navigator.clipboard.writeText(textToCopy)
       } catch (error) {
@@ -369,86 +193,6 @@ export default {
           console.error('Failed to delete session:', error)
         }
       }
-    }
-
-    // Summary functions
-    const generateSummary = async () => {
-      if (!selectedSession.value) return
-
-      summaryGenerating.value = true
-      try {
-        await window.electronAPI.sendToBackend({
-          type: 'generate_summary',
-          session_id: selectedSession.value.id,
-        })
-      } catch (error) {
-        console.error('Failed to generate summary:', error)
-        summaryGenerating.value = false
-      }
-    }
-
-    const regenerateSummary = async () => {
-      if (!selectedSession.value) return
-
-      summaryGenerating.value = true
-      try {
-        await window.electronAPI.sendToBackend({
-          type: 'generate_summary',
-          session_id: selectedSession.value.id,
-        })
-      } catch (error) {
-        console.error('Failed to regenerate summary:', error)
-        summaryGenerating.value = false
-      }
-    }
-
-    // Translation functions
-    const translateSession = async () => {
-      if (!selectedSession.value || !selectedLanguage.value) return
-
-      translationGenerating.value = true
-      try {
-        await window.electronAPI.sendToBackend({
-          type: 'translate_session',
-          session_id: selectedSession.value.id,
-          target_language: selectedLanguage.value,
-        })
-      } catch (error) {
-        console.error('Failed to translate session:', error)
-        translationGenerating.value = false
-      }
-    }
-
-    const handleTranslationFromTab = async (tabInfo) => {
-      if (!selectedSession.value || !selectedLanguage.value) return
-
-      console.log(`Translating content from ${tabInfo.activeTab} tab`)
-      
-      translationGenerating.value = true
-      try {
-        await window.electronAPI.sendToBackend({
-          type: 'translate_session',
-          session_id: selectedSession.value.id,
-          target_language: selectedLanguage.value,
-          active_tab: tabInfo.activeTab,
-          content: tabInfo.content
-        })
-      } catch (error) {
-        console.error('Failed to translate session:', error)
-        translationGenerating.value = false
-      }
-    }
-
-    const onLanguageChange = async (newLanguage) => {
-      selectedLanguage.value = newLanguage
-      if (selectedSession.value && newLanguage) {
-        // Check if translation already exists
-        await loadSessionTranslation(selectedSession.value.id, newLanguage)
-      }
-    }
-    
-    const handleTranslate = async () => {
-      await translateSession()
     }
 
     // Utility functions
@@ -497,7 +241,6 @@ export default {
       }
 
       await loadSessions()
-      await loadSupportedLanguages()
       console.log('📋 ArchiveWindow mounted')
     })
 
@@ -521,12 +264,6 @@ export default {
       currentView,
       selectedSession,
       sessionDetail,
-      summaryGenerating,
-      supportedLanguages,
-      selectedLanguage,
-      currentTranslation,
-      translationGenerating,
-      showOriginal,
       
       // Navigation
       viewSession,
@@ -536,12 +273,6 @@ export default {
       copySession,
       copyCurrentContent,
       deleteSession,
-      generateSummary,
-      regenerateSummary,
-      translateSession,
-      handleTranslationFromTab,
-      handleTranslate,
-      onLanguageChange,
       
       // Utilities
       formatDate,
@@ -553,7 +284,6 @@ export default {
 </script>
 
 <style scoped>
-/* Keep existing scrollbar styles */
 .overflow-y-auto::-webkit-scrollbar {
   width: 6px;
 }

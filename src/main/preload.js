@@ -44,11 +44,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   applyTheme: (theme) => ipcRenderer.invoke('apply-theme', theme),
-  getAvailableModels: () => ipcRenderer.invoke('get-available-models'),
-  downloadTranscriptionModel: (model) => ipcRenderer.invoke('download-transcription-model', model),
-  downloadSummarizationModel: (model) => ipcRenderer.invoke('download-summarization-model', model),
-  downloadTranslationModel: (model) => ipcRenderer.invoke('download-translation-model', model),
-  onThemeChanged: (callback) => ipcRenderer.on('theme-changed', callback),
+onThemeChanged: (callback) => ipcRenderer.on('theme-changed', callback),
 
   // Remove listeners
   removeAllListeners: channel => ipcRenderer.removeAllListeners(channel),

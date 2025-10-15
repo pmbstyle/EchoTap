@@ -72,68 +72,6 @@
           </p>
         </div>
 
-        <!-- Summarization Model Settings -->
-        <div class="mb-6">
-          <h3 class="m-0 mb-3 text-sm font-semibold text-gray-900 dark:text-white">
-            Summarization Model
-          </h3>
-          <select
-            v-model="settings.summarizationModel"
-            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white/80 dark:bg-gray-700/80 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-blue-500 dark:focus:border-blue-400"
-            :disabled="!summarizationModels.length"
-          >
-            <option v-if="!summarizationModels.length" value="">Loading models...</option>
-            <option
-              v-for="model in summarizationModels"
-              :key="model.tier"
-              :value="model.tier"
-            >
-              {{ model.name }} ({{ model.size_mb }}MB) - {{ model.description }}
-            </option>
-          </select>
-          <p class="mt-1 mb-0 text-xs text-gray-600 dark:text-gray-400">
-            Model used for generating summaries of your transcription sessions
-          </p>
-        </div>
-
-        <!-- Translation Model Settings -->
-        <div class="mb-6">
-          <h3 class="m-0 mb-3 text-sm font-semibold text-gray-900 dark:text-white">
-            Translation Model
-          </h3>
-          <select
-            v-model="settings.translationModel"
-            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white/80 dark:bg-gray-700/80 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-blue-500 dark:focus:border-blue-400"
-            :disabled="!translationModels.length"
-          >
-            <option v-if="!translationModels.length" value="">Loading models...</option>
-            <option
-              v-for="model in translationModels"
-              :key="model.tier"
-              :value="model.tier"
-            >
-              {{ model.name }} ({{ model.size_mb }}MB) - {{ model.description }}
-            </option>
-          </select>
-          <p class="mt-1 mb-0 text-xs text-gray-600 dark:text-gray-400">
-            Model used for translating your transcripts to different languages
-          </p>
-        </div>
-
-        <!-- Audio Source Settings -->
-        <div class="mb-6">
-          <h3 class="m-0 mb-3 text-sm font-semibold text-gray-900 dark:text-white">
-            Audio Source
-          </h3>
-          <select
-            v-model="settings.audioSource"
-            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white/80 dark:bg-gray-700/80 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-blue-500 dark:focus:border-blue-400"
-          >
-            <option value="system">System Audio</option>
-            <option value="microphone">Microphone</option>
-          </select>
-        </div>
-
         <!-- Language Settings -->
         <div class="mb-6">
           <h3 class="m-0 mb-3 text-sm font-semibold text-gray-900 dark:text-white">
@@ -155,6 +93,33 @@
             <option value="ko">Korean</option>
             <option value="zh">Chinese</option>
           </select>
+        </div>
+
+        <!-- Hotkey Settings -->
+        <div class="mb-6">
+          <h3 class="m-0 mb-3 text-sm font-semibold text-gray-900 dark:text-white">
+            Global Hotkey
+          </h3>
+          <div class="flex gap-2">
+            <input
+              type="text"
+              v-model="settings.toggleRecordingHotkey"
+              @keydown="captureHotkey"
+              placeholder="Press keys to set hotkey..."
+              readonly
+              class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white/80 dark:bg-gray-700/80 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-blue-500 dark:focus:border-blue-400 cursor-pointer"
+            />
+            <button
+              @click="resetHotkey"
+              class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-transparent text-gray-600 dark:text-gray-400 text-sm cursor-pointer transition-all duration-200 hover:bg-gray-100 dark:hover:bg-white/8"
+              title="Reset to default"
+            >
+              Reset
+            </button>
+          </div>
+          <p class="mt-1 mb-0 text-xs text-gray-600 dark:text-gray-400">
+            Global hotkey to toggle recording (works even when app is in background)
+          </p>
         </div>
       </div>
 
@@ -193,16 +158,12 @@ export default {
   name: 'SettingsWindow',
   setup() {
     const isSaving = ref(false)
-    const summarizationModels = ref([])
-    const translationModels = ref([])
     
     const settings = ref({
       theme: 'system',
       transcriptionModel: 'base',
-      summarizationModel: 'balanced',
-      translationModel: 'balanced',
-      audioSource: 'system',
       language: 'auto',
+      toggleRecordingHotkey: 'CommandOrControl+Shift+R',
     })
 
     const loadSettings = async () => {
@@ -211,25 +172,14 @@ export default {
         if (saved) {
           Object.assign(settings.value, saved)
         }
+        
+        // Load hotkey from electron-store
+        const shortcuts = await window.electronAPI.getStoreValue('shortcuts')
+        if (shortcuts && shortcuts.toggleRecording) {
+          settings.value.toggleRecordingHotkey = shortcuts.toggleRecording
+        }
       } catch (error) {
         console.error('Failed to load settings:', error)
-      }
-    }
-
-    const loadAvailableModels = async () => {
-      try {
-        const models = await window.electronAPI.getAvailableModels()
-        summarizationModels.value = models.summarization || []
-        translationModels.value = models.translation || []
-      } catch (error) {
-        console.error('Failed to load available models:', error)
-        // Fallback to default models
-        summarizationModels.value = [
-          { tier: 'minimal', name: 'TinyLlama-1.1B-Chat', size_mb: 600, description: 'Lightweight model' },
-          { tier: 'balanced', name: 'Phi-3.5-Mini-Instruct', size_mb: 2300, description: 'Balanced performance' },
-          { tier: 'quality', name: 'Qwen2.5-3B-Instruct', size_mb: 1900, description: 'High quality model' }
-        ]
-        translationModels.value = summarizationModels.value
       }
     }
 
@@ -237,39 +187,21 @@ export default {
       isSaving.value = true
       try {
         // Save settings to file (convert reactive object to plain object)
-        // Map models for backend compatibility
-        const getTranscriptionModelName = (tier) => {
-          const mapping = {
-            'tiny': 'tiny',
-            'balanced': 'base',
-            'quality': 'small',
-            'premium': 'medium'
-          }
-          return mapping[tier] || tier
-        }
-        
         const plainSettings = {
           theme: settings.value.theme,
-          transcriptionModel: getTranscriptionModelName(settings.value.transcriptionModel),
-          summarizationModel: settings.value.summarizationModel,  // Keep tier name for LLM engine
-          translationModel: settings.value.translationModel      // Keep tier name for LLM engine
+          transcriptionModel: settings.value.transcriptionModel,
+          language: settings.value.language,
         }
+        
+        // Save hotkey separately to electron-store
+        await window.electronAPI.setStoreValue('shortcuts', {
+          toggleRecording: settings.value.toggleRecordingHotkey
+        })
         await window.electronAPI.saveSettings(plainSettings)
         
         // Apply theme changes immediately
         await window.electronAPI.applyTheme(plainSettings.theme)
         
-        // Download models if needed
-        if (plainSettings.transcriptionModel) {
-          await window.electronAPI.downloadTranscriptionModel(plainSettings.transcriptionModel)
-        }
-        if (plainSettings.summarizationModel) {
-          await window.electronAPI.downloadSummarizationModel(plainSettings.summarizationModel)
-        }
-        if (plainSettings.translationModel) {
-          await window.electronAPI.downloadTranslationModel(plainSettings.translationModel)
-        }
-
         // Send settings to backend
         await window.electronAPI.sendToBackend({
           type: 'update_settings',
@@ -284,14 +216,35 @@ export default {
       }
     }
 
+    const captureHotkey = (event) => {
+      event.preventDefault()
+      
+      const modifiers = []
+      if (event.ctrlKey || event.metaKey) modifiers.push('CommandOrControl')
+      if (event.altKey) modifiers.push('Alt')
+      if (event.shiftKey) modifiers.push('Shift')
+      
+      // Get the key (filter out modifier keys themselves)
+      const key = event.key
+      if (['Control', 'Alt', 'Shift', 'Meta'].includes(key)) {
+        return // Don't capture modifier-only presses
+      }
+      
+      // Build the hotkey string
+      const hotkeyParts = [...modifiers, key.toUpperCase()]
+      settings.value.toggleRecordingHotkey = hotkeyParts.join('+')
+    }
+    
+    const resetHotkey = () => {
+      settings.value.toggleRecordingHotkey = 'CommandOrControl+Shift+R'
+    }
+
     const resetToDefaults = () => {
       settings.value = {
         theme: 'system',
         transcriptionModel: 'base',
-        summarizationModel: 'balanced',
-        translationModel: 'balanced',
-        audioSource: 'system',
         language: 'auto',
+        toggleRecordingHotkey: 'CommandOrControl+Shift+R',
       }
     }
 
@@ -309,7 +262,6 @@ export default {
 
     onMounted(() => {
       loadSettings()
-      loadAvailableModels()
       document.addEventListener('keydown', handleKeydown)
     })
 
@@ -319,12 +271,12 @@ export default {
 
     return {
       settings,
-      summarizationModels,
-      translationModels,
       isSaving,
       saveSettings,
       resetToDefaults,
       closeWindow,
+      captureHotkey,
+      resetHotkey,
     }
   },
 }

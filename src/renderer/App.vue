@@ -87,11 +87,21 @@ export default {
       }
     }
 
-    const handleBackendMessage = (event, message) => {
+    const handleBackendMessage = async (event, message) => {
       if (message.type === 'recording_started') {
         startTimer()
       } else if (message.type === 'recording_stopped') {
         stopTimer()
+        
+        // Copy transcript to clipboard when recording stops
+        if (message.transcript && message.transcript.trim()) {
+          try {
+            await navigator.clipboard.writeText(message.transcript)
+            console.log('✅ Transcript copied to clipboard')
+          } catch (error) {
+            console.error('❌ Failed to copy transcript to clipboard:', error)
+          }
+        }
       }
 
       transcriptionStore.handleBackendMessage(message)

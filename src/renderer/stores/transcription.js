@@ -212,6 +212,13 @@ export const useTranscriptionStore = defineStore('transcription', () => {
       case 'session_deleted':
         // Forward to any listeners that need these messages
         break
+      case 'hotkey_toggle_recording':
+        // Handle hotkey toggle from backend
+        if (isMainWindow && audioProcessing) {
+          console.log('⌨️ Hotkey toggle received, toggling recording...')
+          audioProcessing.toggleRecording()
+        }
+        break
       default:
         // All other messages are handled by main process now
         break

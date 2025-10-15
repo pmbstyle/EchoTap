@@ -18,11 +18,12 @@ import soundfile as sf
 
 # faster-whisper imports
 try:
-    from faster_whisper import WhisperModel, download_model
+    from faster_whisper import WhisperModel, BatchedInferencePipeline, download_model
     FASTER_WHISPER_AVAILABLE = True
 except ImportError:
     FASTER_WHISPER_AVAILABLE = False
     WhisperModel = None
+    BatchedInferencePipeline = None
     download_model = None
 
 # VAD for chunk segmentation
@@ -71,6 +72,7 @@ class TranscriptionEngine:
         self.model_name = self._auto_select_model()
         self.model_size = self.model_name
         self.model: Optional[WhisperModel] = None
+        self.batched_model = None  # Batched inference pipeline for faster processing
         self.language = None  # Auto-detect
         
         # Auto-detect compute device and settings
@@ -202,6 +204,56 @@ class TranscriptionEngine:
             
         except Exception as e:
             logger.error(f"Failed to initialize transcription engine: {e}")
+    
+    async def preheat_model(self):
+        """
+        Preheat the model by running a dummy transcription to eliminate cold start delay.
+        This should be called during app startup to improve first transcription speed.
+        """
+        if not self.model:
+            logger.warning("Cannot preheat: model not loaded")
+            return
+        
+        try:
+            logger.info("🔥 Preheating transcription model...")
+            
+            # Create a small silent audio sample (1 second of silence)
+            # This warms up the model without significant overhead
+            silent_audio = np.zeros(self.sample_rate, dtype=np.float32)
+            
+            # Save to temporary file
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
+                temp_path = temp_file.name
+                sf.write(temp_path, silent_audio, self.sample_rate)
+            
+            try:
+                # Run a quick transcription to warm up the model
+                # Use batched model if available for faster warmup
+                transcribe_fn = self.batched_model if self.batched_model else self.model
+                
+                # Transcribe with minimal settings for speed
+                segments, _ = transcribe_fn.transcribe(
+                    temp_path,
+                    beam_size=1,  # Minimal beam for speed
+                    language=None,
+                    condition_on_previous_text=False,
+                    vad_filter=False,  # Skip VAD for warmup
+                )
+                
+                # Consume the generator to actually run the transcription
+                list(segments)
+                
+                logger.info("✅ Model preheated successfully - first transcription will be faster")
+                
+            finally:
+                # Clean up temp file
+                try:
+                    os.unlink(temp_path)
+                except Exception:
+                    pass
+                    
+        except Exception as e:
+            logger.warning(f"Model preheat failed (non-critical): {e}")
             
     def _get_model_cache_dir(self) -> Path:
         """Get model cache directory"""
@@ -216,17 +268,29 @@ class TranscriptionEngine:
         return cache_dir
         
     def _detect_compute_device(self):
-        """Detect best compute device and type"""
+        """Detect best compute device and type - prioritizes CUDA GPU"""
         try:
-            # Try CUDA first
+            # Try CUDA first - this is the fastest option
             import torch
-            if torch.cuda.is_available():
-                self.device = "cuda"
-                self.compute_type = "float16"
-                logger.info("Using CUDA GPU acceleration")
-                return
+            
+            # Check if CUDA is available and device count > 0
+            if torch.cuda.is_available() and torch.cuda.device_count() > 0:
+                try:
+                    gpu_name = torch.cuda.get_device_name(0)
+                    gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                    self.device = "cuda"
+                    self.compute_type = "float16"  # float16 is much faster on GPU
+                    logger.info(f"✅ CUDA GPU detected: {gpu_name} ({gpu_memory:.1f}GB)")
+                    logger.info("🚀 Using GPU acceleration for maximum speed")
+                    return
+                except Exception as gpu_error:
+                    logger.warning(f"⚠️ GPU detected but couldn't access: {gpu_error}")
+            else:
+                logger.info("ℹ️ No CUDA GPU detected")
         except ImportError:
-            pass
+            logger.info("ℹ️ PyTorch not installed - install with CUDA for GPU acceleration")
+        except Exception as e:
+            logger.warning(f"⚠️ CUDA detection error: {e}")
             
         try:
             # Try Apple Metal
@@ -240,10 +304,11 @@ class TranscriptionEngine:
         except ImportError:
             pass
             
-        # Default to CPU
+        # Fallback to CPU (much slower than GPU)
         self.device = "cpu"
         self.compute_type = "int8"
-        logger.info("Using CPU inference")
+        logger.warning("⚠️ No GPU detected - using CPU (will be slower)")
+        logger.info("💡 For faster transcription, install CUDA-enabled PyTorch")
         
     def _load_model(self, model_name: str):
         """Load Whisper model with automatic fallback and optimization"""
@@ -276,8 +341,21 @@ class TranscriptionEngine:
                 num_workers=1  # Single worker to prevent memory issues
             )
             
+            # Create batched inference pipeline for faster real-time processing
+            # BatchedInferencePipeline can be 2-4x faster than standard transcribe
+            if FASTER_WHISPER_AVAILABLE and BatchedInferencePipeline:
+                try:
+                    batch_size = 8 if self.device == "cuda" else 4  # Smaller batch for CPU
+                    self.batched_model = BatchedInferencePipeline(
+                        model=self.model,
+                    )
+                    logger.info(f"✨ Batched inference pipeline created (batch_size={batch_size})")
+                except Exception as batch_error:
+                    logger.warning(f"Could not create batched pipeline: {batch_error}, using standard model")
+                    self.batched_model = None
+            
             self.model_name = model_name
-            logger.info(f"Model {model_name} loaded successfully ({cpu_threads} threads)")
+            logger.info(f"Model {model_name} loaded successfully ({cpu_threads} threads, device={self.device}, compute={self.compute_type})")
             
         except Exception as e:
             logger.error(f"Failed to load model {model_name}: {e}")

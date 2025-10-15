@@ -12,8 +12,6 @@ export const useAppStore = defineStore('app', () => {
   const preferences = ref({
     theme: 'system',
     transcriptionModel: 'base',
-    summarizationModel: 'balanced',
-    translationModel: 'balanced',
     audioSource: 'microphone',
     language: 'auto',
     vadSensitivity: 50,
