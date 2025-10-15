@@ -6,17 +6,18 @@ import json
 import logging
 import os
 import sys
+import time
 from collections import deque
-from datetime import datetime
-
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 # Audio capture imports
 from audio_capture import AudioCapture
@@ -148,7 +149,7 @@ class ResourceManager:
 # Global resource manager instance
 resource_manager = ResourceManager()
 
-# Legacy global variables for backwards compatibility (will be phased out)
+# Global instances
 active_connections = resource_manager.active_connections
 audio_capture: Optional[AudioCapture] = None
 transcription_engine: Optional[TranscriptionEngine] = None
@@ -259,7 +260,6 @@ def get_app_data_dir() -> Path:
     else:  # Linux
         return Path.home() / ".config" / "EchoTap"
 
-# Audio processing is now handled by handle_frontend_audio function below
 
 async def broadcast_message(message: Dict):
     """Broadcast message to all connected WebSocket clients"""
@@ -304,7 +304,6 @@ async def handle_frontend_audio(message: Dict):
                 logger.error(f"❌ Failed to decode base64 audio data: {e}")
                 return
         else:
-            # Legacy byte array format
             audio_bytes = bytes(audio_data)
             logger.debug(f"Received audio from frontend: {len(audio_bytes)} bytes")
         
@@ -408,15 +407,6 @@ async def handle_frontend_audio(message: Dict):
     except Exception as e:
         logger.error(f"Error handling frontend audio: {e}")
 
-# Legacy backend recording functions removed - now using VAD-based transcription
-
-# Legacy stop recording function removed
-
-# Legacy audio callback removed - using frontend VAD
-
-# Legacy buffer and process audio removed
-
-# Legacy process captured audio removed
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -636,7 +626,6 @@ async def handle_frontend_recording_stopped():
         
         logger.info(f"📴 Frontend recording stopped, session: {session_id}")
 
-# All legacy backend recording code removed - now using efficient frontend VAD
 
 @app.get("/health")
 async def health_check():

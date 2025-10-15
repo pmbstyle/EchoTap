@@ -757,15 +757,13 @@ class TranscriptionEngine:
         
         original_text = text
         
-        # Remove repetitive words (2+ consecutive repeats)
+        # Remove repetitive words
         words = text.split()
         filtered_words = []
         i = 0
         while i < len(words):
             word = words[i]
-            # Check for repetitive sequences (even 2 repeats)
             if i + 1 < len(words) and words[i] == words[i+1]:
-                # Keep only one instance of repeated word
                 filtered_words.append(word)
                 while i < len(words) and word == words[i]:
                     i += 1
@@ -778,33 +776,29 @@ class TranscriptionEngine:
         # Remove common English interjections in non-English text
         english_patterns = [
             r"\b(I'm sorry|thank you|please|excuse me|sorry|okay|yes|no)\b[,\s]*",
-            r"\b(and|or|but|the|a|an|to|of|in|on|at|for|with|by)\b(?=\s+[а-я])",  # English words before Cyrillic
+            r"\b(and|or|but|the|a|an|to|of|in|on|at|for|with|by)\b(?=\s+[а-я])",
         ]
         
         for pattern in english_patterns:
             text = re.sub(pattern, "", text, flags=re.IGNORECASE)
         
-        # Detect and filter obvious made-up content
-        # If text has very mixed scripts (Latin + Cyrillic), it might be hallucinated
+        # Detect mixed script content
         cyrillic_chars = len(re.findall(r'[а-я]', text.lower()))
         latin_chars = len(re.findall(r'[a-z]', text.lower()))
         total_chars = cyrillic_chars + latin_chars
         
-        if total_chars > 5:  # Only check if we have enough characters
+        if total_chars > 5:
             cyrillic_ratio = cyrillic_chars / total_chars
             latin_ratio = latin_chars / total_chars
             
-            # If heavily mixed (both > 20%), it might be hallucinated
             if cyrillic_ratio > 0.2 and latin_ratio > 0.2:
                 logger.warning(f"🚨 Detected mixed script hallucination: '{text}' (Cyr: {cyrillic_ratio:.1%}, Lat: {latin_ratio:.1%})")
-                # Don't completely filter, but flag it
         
         # Clean up extra spaces and punctuation
         text = re.sub(r'\s+', ' ', text).strip()
-        text = re.sub(r'[,\s]+$', '', text)  # Remove trailing commas/spaces
+        text = re.sub(r'[,\s]+$', '', text)
         
-        # Log significant filtering
-        if len(text) < len(original_text) * 0.7:  # More than 30% removed
+        if len(text) < len(original_text) * 0.7:
             logger.info(f"🔧 Heavy filtering applied to {source}: '{original_text[:50]}...' → '{text[:50]}...'")
         
         return text

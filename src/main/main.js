@@ -21,7 +21,6 @@ const __dirname = dirname(__filename)
 
 const store = new Store()
 
-// Keep references to prevent garbage collection
 let mainWindow
 let transcriptWindow
 let archiveWindow
@@ -29,34 +28,19 @@ let settingsWindow
 let tray
 let backendProcess
 let wsConnection
-
-// Global App State - Single source of truth for all windows
 let globalAppState = {
-  // Recording state
   isRecording: false,
   isListening: false,
   currentSessionId: null,
   elapsedTime: 0,
-
-  // Transcription content
   displayText: '',
   sessionTranscript: '',
   partialText: '',
   isFinal: false,
-
-  // Backend connection
   isConnected: false,
-
-  // Audio settings
   audioSource: 'microphone',
-
-  // UI state
   waveformData: new Array(20).fill(0),
-
-  // Session management
   currentSession: null,
-
-  // Statistics
   wordCount: 0,
   charCount: 0,
 }
@@ -652,16 +636,6 @@ function createSettingsWindow() {
   })
 }
 
-// Forward messages to archive window
-function forwardMessageToArchive(message) {
-  if (archiveWindow && !archiveWindow.isDestroyed() && archiveWindow.webContents && !archiveWindow.webContents.isDestroyed()) {
-    try {
-      archiveWindow.webContents.send('backend-message', message)
-    } catch (error) {
-      console.warn('Failed to send message to archive window:', error.message)
-    }
-  }
-}
 
 function saveWindowBounds() {
   if (mainWindow) {

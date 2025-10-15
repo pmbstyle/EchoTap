@@ -111,35 +111,22 @@ class AudioCapture:
         import time
         import math
         
-        # Create synchronized, speech-like waveform pattern
         waveform = []
         current_time = time.time()
         
-        # Create a more natural speech envelope
-        # Speech typically has bursts of activity followed by quieter periods
-        speech_phase = (current_time * 1.5) % 2.0  # 2-second cycles
-        is_speaking = speech_phase < 1.2  # 1.2 seconds of "speech", 0.8 seconds quieter
+        speech_phase = (current_time * 1.5) % 2.0
+        is_speaking = speech_phase < 1.2
         
         for i in range(20):
             if is_speaking:
-                # Active speech simulation - more variation across bars
-                position_factor = i / 19.0  # 0.0 to 1.0 across bars
-                
-                # Create speech-like patterns with phoneme variation
+                position_factor = i / 19.0
                 phoneme_freq = math.sin(current_time * 6 + i * 0.4) * 0.5
                 formant_freq = math.sin(current_time * 15 + position_factor * 8) * 0.3
-                
-                # Add some random variation for naturalness
                 noise = (random.random() - 0.5) * 0.2
-                
-                # Simulate speech envelope - varies across frequency bands (bars)
                 envelope = 0.6 + 0.4 * abs(math.sin(position_factor * math.pi))
-                
                 value = abs(phoneme_freq + formant_freq + noise) * envelope
                 value = min(1.0, max(0.1, value * 1.8))
-                
             else:
-                # Quiet period - background noise only
                 noise = (random.random() - 0.5) * 0.1
                 breathing = abs(math.sin(current_time * 4 + i * 0.2)) * 0.15
                 value = abs(noise + breathing * 0.5)

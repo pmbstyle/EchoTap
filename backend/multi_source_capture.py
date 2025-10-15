@@ -206,7 +206,6 @@ class MultiSourceAudioCapture:
         """Callback for system audio data"""
         if self.is_recording and in_data:
             self.system_audio_buffer.append(in_data)
-            # Removed verbose callback logging - only log errors
         elif status:
             logger.warning(f"⚠️ System audio callback error: {status}")
         return (None, pyaudio.paContinue)
@@ -227,7 +226,6 @@ class MultiSourceAudioCapture:
         
         while not self.stop_processing.is_set():
             try:
-                # Check buffer states (removed verbose logging)
                 mic_buffer_size = len(self.microphone_buffer) if self.microphone_buffer else 0
                 sys_buffer_size = len(self.system_audio_buffer) if self.system_audio_buffer else 0
                 

@@ -231,19 +231,8 @@ export default {
       return `${minutes}:${seconds}`
     })
 
-    const toggleMicrophone = () => {
-      if (window.electronAPI) {
-        window.electronAPI.sendToBackend({
-          type: 'toggle_source',
-        })
-      } else {
-        console.log('Toggle microphone (browser mode)')
-      }
-    }
-
     return {
       formattedTime,
-      toggleMicrophone,
       isDarkMode: props.isDarkMode,
     }
   },

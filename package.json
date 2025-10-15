@@ -48,9 +48,7 @@
   "dependencies": {
     "@ricky0123/vad-web": "^0.0.24",
     "@tailwindcss/vite": "^4.1.4",
-    "@vueuse/core": "^10.3.0",
     "electron-store": "^8.1.0",
-    "fuse.js": "^6.6.2",
     "pinia": "^3.0.3",
     "prettier": "^3.6.2",
     "ws": "^8.18.3"

@@ -56,9 +56,6 @@ export default {
     const isArchiveMode = ref(false)
     const isSettingsMode = ref(false)
 
-    const showArchive = ref(false)
-
-    const showTranscript = ref(false)
     const isDarkMode = ref(true)
 
     const transcriptWindowOpen = ref(false)
@@ -153,8 +150,6 @@ export default {
           window.electronAPI.showTranscript()
           transcriptWindowOpen.value = true
         }
-      } else {
-        showTranscript.value = !showTranscript.value
       }
     }
 
@@ -167,8 +162,6 @@ export default {
           window.electronAPI.showArchive()
           archiveWindowOpen.value = true
         }
-      } else {
-        showArchive.value = !showArchive.value
       }
     }
 
@@ -178,19 +171,6 @@ export default {
       }
     }
 
-    const handleCopyTranscript = () => {
-      if (currentText.value) {
-        navigator.clipboard.writeText(currentText.value).catch(error => {
-          console.warn('Failed to copy to clipboard:', error)
-        })
-      }
-    }
-
-    const handleToggleOverlay = () => {
-      // Toggle overlay functionality - this could be used for show/hide window states
-      // For now, this is a placeholder that prevents the initialization error
-      console.log('Toggle overlay triggered')
-    }
 
     onMounted(async () => {
       const urlParams = new URLSearchParams(window.location.search)
@@ -204,8 +184,6 @@ export default {
 
           if (!isTranscriptMode.value && !isArchiveMode.value && !isSettingsMode.value) {
 
-            window.electronAPI.onCopyTranscript(handleCopyTranscript)
-            window.electronAPI.onToggleOverlay(handleToggleOverlay)
 
             window.electronAPI.onTranscriptWindowClosed(() => {
               transcriptWindowOpen.value = false
@@ -251,8 +229,6 @@ export default {
           window.electronAPI.removeAllListeners('show-preferences')
           window.electronAPI.removeAllListeners('show-preferences-first-run')
           window.electronAPI.removeAllListeners('theme-changed')
-          window.electronAPI.removeAllListeners('copy-transcript')
-          window.electronAPI.removeAllListeners('toggle-overlay')
         } catch (error) {
           console.warn('Error cleaning up Electron listeners:', error)
         }
@@ -267,9 +243,6 @@ export default {
       isArchiveMode,
       isSettingsMode,
       transcriptionStore,
-      showArchive,
-
-      showTranscript,
       isDarkMode,
       transcriptWindowOpen,
       archiveWindowOpen,

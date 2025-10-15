@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useAudioProcessing } from '../composables/useAudioProcessing.js'
 
 export const useTranscriptionStore = defineStore('transcription', () => {
@@ -72,67 +72,6 @@ export const useTranscriptionStore = defineStore('transcription', () => {
     return `${minutes}:${seconds}`
   })
 
-  // Typing effect functions
-  const typeText = (text, speed = 25) => {
-    return new Promise(resolve => {
-      if (!text) {
-        resolve()
-        return
-      }
-
-      stopTyping()
-      isTyping.value = true
-      let currentIndex = 0
-      const targetText = displayText.value + text
-
-      const typeChar = () => {
-        if (currentIndex >= text.length) {
-          isTyping.value = false
-          displayText.value = targetText
-          resolve()
-          return
-        }
-
-        displayText.value = targetText.slice(
-          0,
-          displayText.value.length + currentIndex + 1
-        )
-        currentIndex++
-
-        // Add natural variation to typing speed
-        const variation = Math.random() * 10 - 5 // ±5ms
-        const nextSpeed = Math.max(5, speed + variation)
-
-        typingTimer = setTimeout(typeChar, nextSpeed)
-      }
-
-      typeChar()
-    })
-  }
-
-  const replaceText = (newText, speed = 15) => {
-    return new Promise(resolve => {
-      stopTyping()
-      displayText.value = ''
-
-      typeText(newText, speed).then(() => {
-        resolve()
-      })
-    })
-  }
-
-  const appendText = (newText, speed = 25) => {
-    if (!newText) return Promise.resolve()
-    return typeText(newText, speed)
-  }
-
-  const stopTyping = () => {
-    if (typingTimer) {
-      clearTimeout(typingTimer)
-      typingTimer = null
-    }
-    isTyping.value = false
-  }
 
   // Global State Management via IPC
   const initializeGlobalState = async () => {
@@ -265,7 +204,7 @@ export const useTranscriptionStore = defineStore('transcription', () => {
 
   // Cleanup
   const cleanup = () => {
-    stopTyping()
+    // Cleanup function for store
   }
 
   return {

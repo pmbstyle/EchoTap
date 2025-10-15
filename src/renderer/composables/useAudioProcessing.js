@@ -27,14 +27,10 @@ export function useAudioProcessing() {
 
   const initializeAudioContext = async () => {
     try {
-      // Request microphone access
-      
-      // Check if microphone is available
       const devices = await navigator.mediaDevices.enumerateDevices()
       const audioInputs = devices.filter(device => device.kind === 'audioinput')
       console.log(`🎧 Found ${audioInputs.length} audio input devices:`, audioInputs.map(d => d.label || 'Unnamed device'))
       
-      // Request microphone access
       mediaStream.value = await navigator.mediaDevices.getUserMedia({
         audio: {
           sampleRate: 16000,
@@ -46,50 +42,35 @@ export function useAudioProcessing() {
       })
       console.log('✅ Microphone access granted')
 
-      // Create audio context
-      console.log('🔊 Creating audio context...')
-      audioContext.value = new (window.AudioContext ||
-        window.webkitAudioContext)({
+      audioContext.value = new (window.AudioContext || window.webkitAudioContext)({
         sampleRate: 16000,
       })
       console.log(`✅ Audio context created, state: ${audioContext.value.state}`)
 
-      // Create source and analyser
-      mediaStreamSource.value = audioContext.value.createMediaStreamSource(
-        mediaStream.value
-      )
+      mediaStreamSource.value = audioContext.value.createMediaStreamSource(mediaStream.value)
       analyserNode.value = audioContext.value.createAnalyser()
 
-      // Configure analyser for waveform visualization
-      analyserNode.value.fftSize = 64 // Small FFT for 20 frequency bins
+      analyserNode.value.fftSize = 64
       analyserNode.value.smoothingTimeConstant = 0.3
 
-      // Connect audio graph
       mediaStreamSource.value.connect(analyserNode.value)
 
-      // Initialize audio data array
-      audioDataArray.value = new Uint8Array(
-        analyserNode.value.frequencyBinCount
-      )
+      audioDataArray.value = new Uint8Array(analyserNode.value.frequencyBinCount)
 
-      // MediaRecorder for chunking is disabled - using backend recording instead
-      // Frontend only handles VAD detection for triggering backend recording
       console.log('📢 Using backend recording - frontend chunking disabled')
-
       console.log('✅ Audio context initialized successfully')
       return true
     } catch (error) {
       console.error('❌ Failed to initialize audio context:', error)
       
-      // Detailed error logging for different error types
       if (error.name === 'NotAllowedError') {
         console.error('🚫 Microphone access denied by user or browser policy')
       } else if (error.name === 'NotFoundError') {
         console.error('🔍 No microphone device found')
       } else if (error.name === 'NotReadableError') {
-        console.error('🔒 Microphone is already in use by another application (possibly Google Meet, Discord, etc.)')
+        console.error('🔒 Microphone is already in use by another application')
       } else if (error.name === 'OverconstrainedError') {
-        console.error('⚙️ Audio constraints cannot be satisfied (sample rate, channels, etc.)')
+        console.error('⚙️ Audio constraints cannot be satisfied')
       } else if (error.name === 'SecurityError') {
         console.error('🛡️ Security error - check HTTPS and permissions')
       } else if (error.name === 'AbortError') {
@@ -236,10 +217,6 @@ export function useAudioProcessing() {
     }
   }
 
-  // processAudioChunk function removed - backend handles all audio processing
-  // Frontend chunking eliminated to prevent crashes and duplicate sessions
-
-  // Chunked streaming functions removed - using backend recording instead
 
   const initializeVAD = async () => {
     if (vadInstance.value || isVadInitializing.value) {
@@ -334,7 +311,6 @@ export function useAudioProcessing() {
       mediaStream.value = null
     }
 
-    // MediaRecorder cleanup removed - using backend recording instead
 
     audioDataArray.value = null
   }
