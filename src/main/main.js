@@ -295,14 +295,41 @@ function startBackendProcess() {
     return
   }
 
-  const pythonPath = path.join(process.resourcesPath, 'backend', 'main.py')
-  const args = []
+  // Production mode - use bundled Python
+  const pythonDir = path.join(process.resourcesPath, 'python')
+  const backendDir = path.join(pythonDir, 'backend')
+  
+  let pythonExecutable
+  let launcherScript
+  
+  if (process.platform === 'win32') {
+    pythonExecutable = path.join(pythonDir, 'venv', 'Scripts', 'python.exe')
+    launcherScript = path.join(pythonDir, 'run_backend.bat')
+  } else {
+    pythonExecutable = path.join(pythonDir, 'venv', 'bin', 'python')
+    launcherScript = path.join(pythonDir, 'run_backend.sh')
+  }
 
-  backendProcess = spawn(pythonPath, args, {
-    cwd: isDev
-      ? path.join(__dirname, '../../backend')
-      : path.join(process.resourcesPath, 'backend'),
+  // Check if bundled Python exists
+  if (!fs.existsSync(pythonExecutable)) {
+    console.error('❌ Bundled Python not found at:', pythonExecutable)
+    console.error('Please run: npm run build:python')
+    return
+  }
+
+  console.log('🐍 Starting bundled Python backend...')
+  console.log('Python executable:', pythonExecutable)
+  console.log('Backend directory:', backendDir)
+
+  // Use the Python executable directly
+  backendProcess = spawn(pythonExecutable, [path.join(backendDir, 'main.py')], {
+    cwd: backendDir,
     detached: false,
+    env: {
+      ...process.env,
+      PYTHONPATH: backendDir,
+      PYTHONUNBUFFERED: '1'
+    }
   })
 
   backendProcess.stdout.on('data', data => {
@@ -315,6 +342,10 @@ function startBackendProcess() {
 
   backendProcess.on('close', code => {
     console.log(`Backend process exited with code ${code}`)
+  })
+
+  backendProcess.on('error', error => {
+    console.error('Failed to start backend process:', error)
   })
 }
 
