@@ -34,14 +34,8 @@ jobs:
         cd backend
         pip install -r requirements.txt
     
-    - name: Build Python runtime
-      run: npm run build:python
-    
-    - name: Build renderer
-      run: npm run build:renderer
-    
-    - name: Build Electron app
-      run: npm run build:main
+    - name: Build application
+      run: npm run build
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     
@@ -76,14 +70,8 @@ jobs:
         cd backend
         pip install -r requirements.txt
     
-    - name: Build Python runtime
-      run: npm run build:python
-    
-    - name: Build renderer
-      run: npm run build:renderer
-    
-    - name: Build Electron app
-      run: npm run build:main
+    - name: Build application
+      run: npm run build
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     
@@ -123,14 +111,8 @@ jobs:
         cd backend
         pip install -r requirements.txt
     
-    - name: Build Python runtime
-      run: npm run build:python
-    
-    - name: Build renderer
-      run: npm run build:renderer
-    
-    - name: Build Electron app
-      run: npm run build:main
+    - name: Build application
+      run: npm run build
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     
