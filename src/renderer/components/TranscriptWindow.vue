@@ -159,9 +159,9 @@ export default {
     const charCount = computed(() => transcriptionStore.charCount)
 
     const closeWindow = () => {
-      // Check if we're in transcript mode (separate window)
-      const urlParams = new URLSearchParams(window.location.search)
-      if (urlParams.get('mode') === 'transcript' && window.electronAPI) {
+      // Check if we're in transcript mode (separate window) using hash routing
+      const hash = window.location.hash.substring(1)
+      if (hash === 'transcript' && window.electronAPI) {
         window.electronAPI.closeTranscript()
       } else {
         emit('close')

@@ -6,6 +6,7 @@ import {
   Menu,
   Tray,
   screen,
+  shell,
 } from 'electron'
 import path from 'path'
 import Store from 'electron-store'
@@ -46,7 +47,6 @@ let globalAppState = {
 }
 
 const isDev = !app.isPackaged
-// Settings file management
 function getSettingsPath() {
   if (process.platform === 'win32') {
     return path.join(process.env.APPDATA || os.homedir(), 'EchoTap', 'settings.json')
@@ -110,10 +110,7 @@ function isFirstRun() {
   return !fs.existsSync(settingsPath)
 }
 
-// Global settings state
 let globalSettings = loadSettings()
-
-// Theme management
 function updateAppTheme(theme) {
   try {
     // Apply theme to all windows
@@ -128,21 +125,17 @@ function updateAppTheme(theme) {
   }
 }
 
-// Global State Management Functions
 function updateAppState(updates) {
-  // Deep merge updates into global state
   Object.keys(updates).forEach(key => {
     if (updates[key] !== undefined) {
       globalAppState[key] = updates[key]
     }
   })
 
-  // Calculate derived values
   const text = globalAppState.sessionTranscript || globalAppState.displayText
   globalAppState.wordCount = text ? text.trim().split(/\s+/).length : 0
   globalAppState.charCount = text ? text.length : 0
 
-  // Broadcast to all windows
   broadcastStateToAllWindows()
 }
 
@@ -168,7 +161,6 @@ function broadcastStateToAllWindows() {
   })
 }
 
-// Backend Message Handler - Updates global state from backend messages
 function handleBackendMessage(message) {
   switch (message.type) {
     case 'connection_status':
@@ -287,30 +279,23 @@ function handleBackendMessage(message) {
   }
 }
 
-// Backend process management
 function startBackendProcess() {
-  // Skip backend process in development - it's already running via npm script
   if (isDev) {
     console.log('Development mode: Backend process handled by npm script')
     return
   }
 
-  // Production mode - use bundled Python
   const pythonDir = path.join(process.resourcesPath, 'python')
   const backendDir = path.join(pythonDir, 'backend')
   
   let pythonExecutable
-  let launcherScript
   
   if (process.platform === 'win32') {
     pythonExecutable = path.join(pythonDir, 'venv', 'Scripts', 'python.exe')
-    launcherScript = path.join(pythonDir, 'run_backend.bat')
   } else {
     pythonExecutable = path.join(pythonDir, 'venv', 'bin', 'python')
-    launcherScript = path.join(pythonDir, 'run_backend.sh')
   }
 
-  // Check if bundled Python exists
   if (!fs.existsSync(pythonExecutable)) {
     console.error('❌ Bundled Python not found at:', pythonExecutable)
     console.error('Please run: npm run build:python')
@@ -320,8 +305,6 @@ function startBackendProcess() {
   console.log('🐍 Starting bundled Python backend...')
   console.log('Python executable:', pythonExecutable)
   console.log('Backend directory:', backendDir)
-
-  // Use the Python executable directly
   backendProcess = spawn(pythonExecutable, [path.join(backendDir, 'main.py')], {
     cwd: backendDir,
     detached: false,
@@ -378,51 +361,32 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, '../preload/preload.js'),
       backgroundThrottling: false,
     },
   })
 
   async function loadRenderer() {
-    if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
-      // Development: Load from Vite dev server with retry logic
-      console.log(
-        'Attempting to load from Vite dev server:',
-        process.env.ELECTRON_RENDERER_URL
-      )
-
-      let attempts = 0
-      const maxAttempts = 10
-
-      while (attempts < maxAttempts) {
-        try {
-          await mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
-          console.log('Successfully loaded from Vite dev server')
-          mainWindow.webContents.openDevTools()
-          return
-        } catch (error) {
-          attempts++
-          console.log(
-            `Attempt ${attempts}/${maxAttempts} failed, retrying in 1 second...`
-          )
-          await new Promise(resolve => setTimeout(resolve, 1000))
-        }
-      }
-
-      console.log('Failed to load from Vite dev server, falling back to file')
-      // Fallback to file loading
-    }
-
     if (!app.isPackaged) {
-      // Development fallback: Load local HTML file
-      const htmlPath = path.resolve(__dirname, '../../index.html')
-      console.log('Loading HTML file in dev mode:', htmlPath)
-      console.log('Path exists:', fs.existsSync(htmlPath))
-      mainWindow.loadFile(htmlPath)
-      mainWindow.webContents.openDevTools()
+      // Development mode: Load from Vite dev server
+      const devUrl = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5173'
+      console.log('Loading from Vite dev server:', devUrl)
+      
+      try {
+        await mainWindow.loadURL(devUrl)
+        console.log('✅ Loaded from Vite dev server')
+        mainWindow.webContents.openDevTools()
+      } catch (error) {
+        console.error('Failed to load from Vite dev server:', error)
+        // Fallback to local file in dev mode
+        const htmlPath = path.resolve(__dirname, '../../index.html')
+        console.log('Fallback: Loading HTML file in dev mode:', htmlPath)
+        mainWindow.loadFile(htmlPath)
+        mainWindow.webContents.openDevTools()
+      }
     } else {
-      // Production: Load from built renderer
-      const htmlPath = path.join(__dirname, '../renderer/index.html')
+      // Production mode: Load from built renderer
+      const htmlPath = path.join(process.resourcesPath, 'app.asar', 'dist', 'renderer', 'index.html')
       console.log('Loading HTML file in production:', htmlPath)
       mainWindow.loadFile(htmlPath)
     }
@@ -455,14 +419,14 @@ function createWindow() {
   })
 }
 
-function createTranscriptWindow() {
+async function createTranscriptWindow() {
   // Close archive window if open (mutual exclusion)
   if (archiveWindow) {
     archiveWindow.close()
     archiveWindow = null
   }
 
-  if (transcriptWindow) {
+  if (transcriptWindow && !transcriptWindow.isDestroyed()) {
     transcriptWindow.focus()
     return
   }
@@ -488,63 +452,82 @@ function createTranscriptWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, '../preload/preload.js'),
       backgroundThrottling: false,
     },
   })
 
-  // Load dedicated transcript window content
-  if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
-    // In development, use query param to show transcript mode
-    const transcriptUrl = `${process.env.ELECTRON_RENDERER_URL}?mode=transcript`
-    console.log('Loading transcript URL:', transcriptUrl)
-    transcriptWindow.loadURL(transcriptUrl)
-  } else {
-    // In production, load the transcript.html file
-    const transcriptPath = path.join(__dirname, '../transcript.html')
-    console.log('Loading transcript from:', transcriptPath)
-    transcriptWindow.loadFile(transcriptPath)
+  // Load transcript window with hash routing
+  const transcriptHash = 'transcript'
+  try {
+    if (!app.isPackaged) {
+      // In development, load from Vite dev server with hash (with retry)
+      const devUrl = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5173'
+      const url = `${devUrl}#${transcriptHash}`
+      console.log('Loading transcript from:', url)
+      
+      
+      await transcriptWindow.loadURL(url)
+    } else {
+      // In production, load from built files with hash
+      const indexPath = path.join(process.resourcesPath, 'app.asar', 'dist', 'renderer', 'index.html')
+      console.log('Loading transcript from:', indexPath, 'with hash:', transcriptHash)
+      await transcriptWindow.loadFile(indexPath, { hash: transcriptHash })
+    }
+
+    // Show window immediately after loading
+    transcriptWindow.show()
+  } catch (error) {
+    console.error('Failed to load transcript window:', error)
+    if (transcriptWindow) {
+      transcriptWindow.close()
+      transcriptWindow = null
+    }
   }
 
-  transcriptWindow.once('ready-to-show', () => {
-    transcriptWindow.show()
-    
+  // Set up event handlers only if window was created successfully
+  if (transcriptWindow) {
     // Send initial state to transcript window after a brief delay
-    // to prevent interference with ongoing operations
     setTimeout(() => {
       try {
         if (transcriptWindow && !transcriptWindow.isDestroyed() && 
             transcriptWindow.webContents && !transcriptWindow.webContents.isDestroyed()) {
           transcriptWindow.webContents.send('app-state-changed', globalAppState)
-          // Initial state sent to transcript window
         }
       } catch (error) {
         console.warn('Failed to send initial state to transcript window:', error.message)
       }
-    }, 100)
-  })
+    }, 50) // Reduced delay for faster response
 
-  transcriptWindow.on('closed', () => {
-    // Notify main window that transcript window was closed
-    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
-      try {
-        mainWindow.webContents.send('transcript-window-closed')
-      } catch (error) {
-        console.warn('Failed to send transcript-window-closed event:', error.message)
+    transcriptWindow.on('closed', () => {
+      // Notify main window that transcript window was closed
+      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+        try {
+          mainWindow.webContents.send('transcript-window-closed')
+        } catch (error) {
+          console.warn('Failed to send transcript-window-closed event:', error.message)
+        }
       }
-    }
-    transcriptWindow = null
-  })
+      transcriptWindow = null
+    })
+
+    transcriptWindow.webContents.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith('https:') || url.startsWith('http:')) {
+        shell.openExternal(url)
+      }
+      return { action: 'deny' }
+    })
+  }
 }
 
-function createArchiveWindow() {
+async function createArchiveWindow() {
   // Close transcript window if open (mutual exclusion)
   if (transcriptWindow) {
     transcriptWindow.close()
     transcriptWindow = null
   }
 
-  if (archiveWindow) {
+  if (archiveWindow && !archiveWindow.isDestroyed()) {
     archiveWindow.focus()
     return
   }
@@ -570,43 +553,64 @@ function createArchiveWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, '../preload/preload.js'),
       backgroundThrottling: false,
     },
   })
 
-  // Load dedicated archive window content
-  if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
-    // In development, use query param to show archive mode
-    const archiveUrl = `${process.env.ELECTRON_RENDERER_URL}?mode=archive`
-    console.log('Loading archive URL:', archiveUrl)
-    archiveWindow.loadURL(archiveUrl)
-  } else {
-    // In production, load the archive.html file
-    const archivePath = path.join(__dirname, '../archive.html')
-    console.log('Loading archive from:', archivePath)
-    archiveWindow.loadFile(archivePath)
+  // Load archive window with hash routing
+  const archiveHash = 'archive'
+  try {
+    if (!app.isPackaged) {
+      // In development, load from Vite dev server with hash (with retry)
+      const devUrl = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5173'
+      const url = `${devUrl}#${archiveHash}`
+      console.log('Loading archive from:', url)
+      
+      
+      await archiveWindow.loadURL(url)
+    } else {
+      // In production, load from built files with hash
+      const indexPath = path.join(process.resourcesPath, 'app.asar', 'dist', 'renderer', 'index.html')
+      console.log('Loading archive from:', indexPath, 'with hash:', archiveHash)
+      await archiveWindow.loadFile(indexPath, { hash: archiveHash })
+    }
+
+    // Show window immediately after loading
+    archiveWindow.show()
+  } catch (error) {
+    console.error('Failed to load archive window:', error)
+    if (archiveWindow) {
+      archiveWindow.close()
+      archiveWindow = null
+    }
   }
 
-  archiveWindow.once('ready-to-show', () => {
-    archiveWindow.show()
-  })
-
-  archiveWindow.on('closed', () => {
-    // Notify main window that archive window was closed
-    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
-      try {
-        mainWindow.webContents.send('archive-window-closed')
-      } catch (error) {
-        console.warn('Failed to send archive-window-closed event:', error.message)
+  // Set up event handlers only if window was created successfully
+  if (archiveWindow) {
+    archiveWindow.on('closed', () => {
+      // Notify main window that archive window was closed
+      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+        try {
+          mainWindow.webContents.send('archive-window-closed')
+        } catch (error) {
+          console.warn('Failed to send archive-window-closed event:', error.message)
+        }
       }
-    }
-    archiveWindow = null
-  })
+      archiveWindow = null
+    })
+
+    archiveWindow.webContents.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith('https:') || url.startsWith('http:')) {
+        shell.openExternal(url)
+      }
+      return { action: 'deny' }
+    })
+  }
 }
 
-function createSettingsWindow() {
-  if (settingsWindow) {
+async function createSettingsWindow() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.focus()
     return
   }
@@ -632,39 +636,60 @@ function createSettingsWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, '../preload/preload.js'),
       backgroundThrottling: false,
     },
   })
 
-  // Load dedicated settings window content
-  if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
-    // In development, use query param to show settings mode
-    const settingsUrl = `${process.env.ELECTRON_RENDERER_URL}?mode=settings`
-    console.log('Loading settings URL:', settingsUrl)
-    settingsWindow.loadURL(settingsUrl)
-  } else {
-    // In production, load the settings.html file
-    const settingsPath = path.join(__dirname, '../settings.html')
-    console.log('Loading settings from:', settingsPath)
-    settingsWindow.loadFile(settingsPath)
+  // Load settings window with hash routing
+  const settingsHash = 'settings'
+  try {
+    if (!app.isPackaged) {
+      // In development, load from Vite dev server with hash (with retry)
+      const devUrl = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5173'
+      const url = `${devUrl}#${settingsHash}`
+      console.log('Loading settings from:', url)
+      
+      
+      await settingsWindow.loadURL(url)
+    } else {
+      // In production, load from built files with hash
+      const indexPath = path.join(process.resourcesPath, 'app.asar', 'dist', 'renderer', 'index.html')
+      console.log('Loading settings from:', indexPath, 'with hash:', settingsHash)
+      await settingsWindow.loadFile(indexPath, { hash: settingsHash })
+    }
+
+    // Show window immediately after loading
+    settingsWindow.show()
+  } catch (error) {
+    console.error('Failed to load settings window:', error)
+    if (settingsWindow) {
+      settingsWindow.close()
+      settingsWindow = null
+    }
   }
 
-  settingsWindow.once('ready-to-show', () => {
-    settingsWindow.show()
-  })
-
-  settingsWindow.on('closed', () => {
-    // Notify main window that settings window was closed
-    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
-      try {
-        mainWindow.webContents.send('settings-window-closed')
-      } catch (error) {
-        console.warn('Failed to send settings-window-closed event:', error.message)
+  // Set up event handlers only if window was created successfully
+  if (settingsWindow) {
+    settingsWindow.on('closed', () => {
+      // Notify main window that settings window was closed
+      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+        try {
+          mainWindow.webContents.send('settings-window-closed')
+        } catch (error) {
+          console.warn('Failed to send settings-window-closed event:', error.message)
+        }
       }
-    }
-    settingsWindow = null
-  })
+      settingsWindow = null
+    })
+
+    settingsWindow.webContents.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith('https:') || url.startsWith('http:')) {
+        shell.openExternal(url)
+      }
+      return { action: 'deny' }
+    })
+  }
 }
 
 
@@ -723,8 +748,8 @@ function createTray() {
   try {
     // Try multiple possible paths for the tray icon
     const possiblePaths = [
-      path.join(__dirname, '../assets/tray-icon.png'),
-      path.join(__dirname, '../../assets/tray-icon.png'),
+      path.join(__dirname, '../renderer/assets/tray-icon.png'),
+      path.join(__dirname, '../../src/assets/tray-icon.png'),
       path.join(__dirname, '../src/assets/tray-icon.png'),
       path.join(process.cwd(), 'src/assets/tray-icon.png'),
     ]
@@ -814,7 +839,26 @@ function registerGlobalShortcuts() {
     if (shortcuts.toggleRecording) {
       const registered = globalShortcut.register(shortcuts.toggleRecording, () => {
         if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+          // Send to backend
           wsConnection.send(JSON.stringify({ type: 'toggle_recording' }))
+          
+          // Immediately update main window status for better UX
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            const currentState = globalAppState
+            const newRecordingState = !currentState.isRecording
+            
+            updateAppState({
+              isRecording: newRecordingState,
+              elapsedTime: newRecordingState ? 0 : currentState.elapsedTime
+            })
+            
+            // Send immediate update to main window
+            try {
+              mainWindow.webContents.send('app-state-changed', globalAppState)
+            } catch (error) {
+              console.warn('Failed to send immediate state update to main window:', error.message)
+            }
+          }
         }
       })
       
@@ -993,6 +1037,7 @@ async function cleanupBackend() {
   }
 }
 
+
 // Enhanced cleanup with multiple exit handlers
 let isQuitting = false
 
@@ -1004,6 +1049,16 @@ app.on('before-quit', async event => {
   isQuitting = true
 
   console.log('🔄 App shutting down, starting cleanup...')
+
+  // Update main window status to "Closing..."
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      updateAppState({ status: 'Closing...' })
+      mainWindow.webContents.send('app-state-changed', globalAppState)
+    } catch (error) {
+      console.warn('Failed to update closing status:', error.message)
+    }
+  }
 
   // Clean up
   globalShortcut.unregisterAll()
@@ -1121,16 +1176,16 @@ ipcMain.handle('close-window', async () => {
   }
 })
 
-ipcMain.handle('show-transcript', () => {
-  createTranscriptWindow()
+ipcMain.handle('show-transcript', async () => {
+  await createTranscriptWindow()
 })
 
-ipcMain.handle('show-archive', () => {
-  createArchiveWindow()
+ipcMain.handle('show-archive', async () => {
+  await createArchiveWindow()
 })
 
-ipcMain.handle('show-settings', () => {
-  createSettingsWindow()
+ipcMain.handle('show-settings', async () => {
+  await createSettingsWindow()
 })
 
 ipcMain.handle('close-transcript', () => {

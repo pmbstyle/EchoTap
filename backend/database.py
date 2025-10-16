@@ -239,7 +239,6 @@ class DatabaseManager:
         
         sessions = []
         async for row in cursor:
-            # Create preview text
             preview = row['first_segment'] or ""
             if len(preview) > 100:
                 preview = preview[:97] + "..."
@@ -259,9 +258,6 @@ class DatabaseManager:
         return sessions
         
     async def get_session_transcript(self, session_id: str) -> Dict:
-        """Get full transcript for a session"""
-        
-        # Get session info
         cursor = await self.db.execute("""
             SELECT * FROM sessions WHERE id = ?
         """, (session_id,))
@@ -270,7 +266,6 @@ class DatabaseManager:
         if not session:
             return None
             
-        # Get transcript segments
         cursor = await self.db.execute("""
             SELECT text, start_time, end_time, confidence
             FROM transcript_segments
@@ -336,10 +331,7 @@ class DatabaseManager:
         return results
         
     async def delete_session(self, session_id: str) -> bool:
-        """Delete a session and all its transcript segments"""
-        
         try:
-            # Delete from FTS index first (referencing transcript_segments)
             await self.db.execute("""
                 DELETE FROM transcript_fts 
                 WHERE rowid IN (
@@ -347,19 +339,16 @@ class DatabaseManager:
                 )
             """, (session_id,))
             
-            # Delete transcript segments
             await self.db.execute("""
                 DELETE FROM transcript_segments WHERE session_id = ?
             """, (session_id,))
             
-            # Delete session
             cursor = await self.db.execute("""
                 DELETE FROM sessions WHERE id = ?
             """, (session_id,))
             
             await self.db.commit()
             
-            # Check if session was actually deleted
             return cursor.rowcount > 0
             
         except Exception as e:
@@ -367,8 +356,6 @@ class DatabaseManager:
             raise e
         
     async def get_transcription_stats(self) -> TranscriptionStats:
-        """Get overall transcription statistics"""
-        
         cursor = await self.db.execute("""
             SELECT 
                 COUNT(*) as total_sessions,
@@ -381,7 +368,6 @@ class DatabaseManager:
         
         stats = await cursor.fetchone()
         
-        # Get most used language
         cursor = await self.db.execute("""
             SELECT language, COUNT(*) as count
             FROM sessions
@@ -426,7 +412,6 @@ class DatabaseManager:
             return "\n".join(lines)
             
         elif format == "srt":
-            # SRT subtitle format
             srt_lines = []
             for i, segment in enumerate(segments, 1):
                 start_time = self._seconds_to_srt_time(segment['start_time'])
@@ -442,7 +427,6 @@ class DatabaseManager:
             return "\n".join(srt_lines)
             
         elif format == "vtt":
-            # WebVTT format
             vtt_lines = ["WEBVTT", ""]
             
             for segment in segments:
@@ -460,7 +444,6 @@ class DatabaseManager:
         return None
         
     def _seconds_to_srt_time(self, seconds: float) -> str:
-        """Convert seconds to SRT time format"""
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
         secs = int(seconds % 60)
@@ -468,7 +451,6 @@ class DatabaseManager:
         return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
         
     def _seconds_to_vtt_time(self, seconds: float) -> str:
-        """Convert seconds to VTT time format"""
         minutes = int(seconds // 60)
         secs = seconds % 60
         return f"{minutes:02d}:{secs:06.3f}"

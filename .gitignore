@@ -47,6 +47,9 @@ tmp/
 temp/
 *.tmp
 
+# Build cache
+.build-cache/
+
 # IDE
 .vscode/
 .idea/
@@ -56,3 +59,4 @@ temp/
 /plan
 CLAUDE.md
 /.serena
+/dist-new

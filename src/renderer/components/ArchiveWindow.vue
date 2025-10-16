@@ -93,6 +93,7 @@ import SessionDetail from './archive/SessionDetail.vue'
 
 export default {
   name: 'ArchiveWindow',
+  emits: ['close'],
   components: {
     SessionList,
     SessionDetail
@@ -208,9 +209,12 @@ export default {
     }
 
     const closeWindow = () => {
-      const urlParams = new URLSearchParams(window.location.search)
-      if (urlParams.get('mode') === 'archive' && window.electronAPI) {
+      // Check if we're in archive mode (separate window) using hash routing
+      const hash = window.location.hash.substring(1)
+      if (hash === 'archive' && window.electronAPI) {
         window.electronAPI.closeArchive()
+      } else {
+        emit('close')
       }
     }
 

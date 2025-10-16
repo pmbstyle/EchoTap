@@ -65,20 +65,43 @@ try {
   console.warn('⚠️ Failed to upgrade pip:', error.message);
 }
 
-// Install dependencies
+// Install dependencies with optimizations
 console.log('📚 Installing Python dependencies...');
 const requirementsPath = path.join(backendDir, 'requirements.txt');
+const optimizedRequirementsPath = path.join(backendDir, 'requirements-optimized.txt');
 
-if (fs.existsSync(requirementsPath)) {
+// Use optimized requirements if available
+const finalRequirementsPath = fs.existsSync(optimizedRequirementsPath) ? optimizedRequirementsPath : requirementsPath;
+
+if (fs.existsSync(finalRequirementsPath)) {
   try {
-    execSync(`"${venvPython}" -m pip install -r "${requirementsPath}"`, { 
+    // Create pip cache directory
+    const pipCacheDir = path.join(buildDir, 'pip-cache');
+    if (!fs.existsSync(pipCacheDir)) {
+      fs.mkdirSync(pipCacheDir, { recursive: true });
+    }
+
+    // Install with optimizations
+    const installCmd = `"${venvPython}" -m pip install -r "${finalRequirementsPath}" --cache-dir "${pipCacheDir}" --upgrade --no-deps`;
+    console.log('🔄 Installing with cache optimization...');
+    execSync(installCmd, { 
       stdio: 'inherit',
       cwd: backendDir
     });
-    console.log('✅ Dependencies installed');
+    console.log('✅ Dependencies installed with cache');
   } catch (error) {
-    console.error('❌ Failed to install dependencies:', error.message);
-    process.exit(1);
+    // Fallback to regular installation if cache fails
+    console.log('🔄 Cache failed, trying regular installation...');
+    try {
+      execSync(`"${venvPython}" -m pip install -r "${finalRequirementsPath}" --no-cache-dir --upgrade`, { 
+        stdio: 'inherit',
+        cwd: backendDir
+      });
+      console.log('✅ Dependencies installed (fallback)');
+    } catch (fallbackError) {
+      console.error('❌ Failed to install dependencies:', fallbackError.message);
+      process.exit(1);
+    }
   }
 } else {
   console.error('❌ requirements.txt not found');
@@ -121,6 +144,24 @@ const internalDest = path.join(backendDest, 'internal');
 if (fs.existsSync(internalSrc)) {
   console.log('📁 Copying internal directory...');
   copyDirectory(internalSrc, internalDest);
+}
+
+// Pre-download models for faster startup
+console.log('📥 Pre-downloading Whisper models...');
+try {
+  const preDownloadScript = path.join(backendDir, 'pre_download_models.py');
+  if (fs.existsSync(preDownloadScript)) {
+    execSync(`"${venvPython}" "${preDownloadScript}"`, { 
+      stdio: 'inherit',
+      cwd: backendDir
+    });
+    console.log('✅ Models pre-downloaded');
+  } else {
+    console.log('⚠️ Model pre-download script not found, skipping...');
+  }
+} catch (error) {
+  console.warn('⚠️ Model pre-download failed:', error.message);
+  console.log('💡 Models will be downloaded on first use');
 }
 
 // Create Python launcher script

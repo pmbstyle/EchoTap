@@ -43,12 +43,7 @@
                 ? 'bg-red-500 text-white shadow-red-500/30 shadow-lg cursor-pointer hover:scale-110 active:scale-95'
                 : 'bg-black/10 dark:bg-white/15 text-black/80 dark:text-white/90 hover:bg-black/15 dark:hover:bg-white/20 cursor-pointer hover:scale-110 active:scale-95',
           ]"
-          @click="
-            isConnected
-              ? (console.log('🎤 Recording button clicked'),
-                $emit('toggle-recording'))
-              : null
-          "
+          @click="isConnected ? $emit('toggle-recording') : null"
           :disabled="!isConnected"
           :title="!isConnected ? 'Initializing...' : 'Toggle Recording (⌘R)'"
         >
@@ -108,10 +103,7 @@
               ? 'bg-blue-500/15 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400'
               : 'bg-transparent text-black/60 dark:text-white/70 hover:bg-black/8 dark:hover:bg-white/10 hover:text-black/80 dark:hover:text-white/90'
           "
-          @click="
-            (console.log('📋 Transcript button clicked'),
-            $emit('show-transcript'))
-          "
+          @click="$emit('show-transcript')"
           :title="
             transcriptWindowOpen
               ? 'Close Transcript (⌘T)'
@@ -129,9 +121,7 @@
               ? 'bg-green-500/15 dark:bg-green-500/20 text-green-600 dark:text-green-400'
               : 'bg-transparent text-black/60 dark:text-white/70 hover:bg-black/8 dark:hover:bg-white/10 hover:text-black/80 dark:hover:text-white/90'
           "
-          @click="
-            (console.log('📚 Archive button clicked'), $emit('show-archive'))
-          "
+          @click="$emit('show-archive')"
           :title="
             archiveWindowOpen ? 'Close Archive (⌘Y)' : 'Open Archive (⌘Y)'
           "
@@ -144,9 +134,7 @@
         </button>
         <button
           class="w-8 h-8 rounded-full border-0 bg-transparent text-black/60 dark:text-white/70 flex items-center justify-center cursor-pointer transition-all duration-200 hover:bg-black/8 dark:hover:bg-white/10 hover:text-black/80 dark:hover:text-white/90 active:scale-95"
-          @click="
-            (console.log('⚙️ Settings button clicked'), $emit('show-settings'))
-          "
+          @click="$emit('show-settings')"
           title="Settings (⌘,)"
         >
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">

@@ -156,6 +156,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 
 export default {
   name: 'SettingsWindow',
+  emits: ['close'],
   setup() {
     const isSaving = ref(false)
     
@@ -249,8 +250,12 @@ export default {
     }
 
     const closeWindow = () => {
-      if (window.electronAPI) {
+      // Check if we're in settings mode (separate window) using hash routing
+      const hash = window.location.hash.substring(1)
+      if (hash === 'settings' && window.electronAPI) {
         window.electronAPI.closeSettings()
+      } else {
+        emit('close')
       }
     }
 

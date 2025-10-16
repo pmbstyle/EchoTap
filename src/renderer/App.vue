@@ -107,19 +107,15 @@ export default {
     watch(
       () => transcriptionStore.isRecording,
       (newIsRecording, oldIsRecording) => {
-        // Timer state watch triggered
         if (newIsRecording && !oldIsRecording) {
-          // Starting timer - recording began
           startTimer()
         } else if (!newIsRecording && oldIsRecording) {
-          // Stopping timer - recording ended
           stopTimer()
         }
       }
     )
 
     const handleToggleRecording = async () => {
-      // Toggle recording clicked
       await transcriptionStore.toggleRecording()
     }
 
@@ -141,7 +137,6 @@ export default {
     }
 
     const handleShowTranscript = () => {
-      // Show transcript clicked
       if (window.electronAPI) {
         if (transcriptWindowOpen.value) {
           window.electronAPI.closeTranscript()
@@ -173,18 +168,17 @@ export default {
 
 
     onMounted(async () => {
-      const urlParams = new URLSearchParams(window.location.search)
-      isTranscriptMode.value = urlParams.get('mode') === 'transcript'
-      isArchiveMode.value = urlParams.get('mode') === 'archive'
-      isSettingsMode.value = urlParams.get('mode') === 'settings'
+      const hash = window.location.hash.substring(1)
+      const mode = hash || window.ECHOTAP_MODE
+      isTranscriptMode.value = mode === 'transcript'
+      isArchiveMode.value = mode === 'archive'
+      isSettingsMode.value = mode === 'settings'
 
       if (window.electronAPI) {
         try {
           window.electronAPI.onBackendMessage(handleBackendMessage)
 
           if (!isTranscriptMode.value && !isArchiveMode.value && !isSettingsMode.value) {
-
-
             window.electronAPI.onTranscriptWindowClosed(() => {
               transcriptWindowOpen.value = false
               console.log('📋 Transcript window closed')
@@ -194,7 +188,6 @@ export default {
               console.log('📚 Archive window closed')
             })
             
-            // Listen for theme changes
             window.electronAPI.onThemeChanged((event, theme) => {
               isDarkMode.value = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
               document.documentElement.classList.toggle('dark-mode', isDarkMode.value)

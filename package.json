@@ -2,33 +2,14 @@
   "name": "echotap",
   "version": "1.0.0",
   "description": "Local real-time transcription app",
-  "main": "src/main/main.js",
+  "main": "dist-electron/main/index.js",
   "author": "EchoTap Team",
   "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently --kill-others --kill-others-on-fail \"npm run dev:renderer\" \"npm run dev:backend\" \"npm run dev:electron\"",
-    "dev:renderer": "vite",
-    "dev:electron": "cross-env ELECTRON_RENDERER_URL=http://localhost:5173 electron .",
-    "dev:backend": "cd backend && python -m uvicorn main:app --reload --port 8888",
-    "build": "npm run build:renderer && npm run build:python && npm run build:main",
-    "build:renderer": "vite build",
-    "build:python": "node scripts/build-python.js",
-    "build:main": "electron-builder",
-    "build:win": "npm run build && electron-builder --win",
-    "build:mac": "npm run build && electron-builder --mac",
-    "build:linux": "npm run build && electron-builder --linux",
-    "build:all": "npm run build:win && npm run build:mac && npm run build:linux",
-    "start": "electron .",
-    "test": "vitest",
-    "test:backend": "cd backend && python -m pytest test_main.py -v",
-    "test:frontend": "vitest run",
-    "test:all": "npm run test:backend && npm run test:frontend",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "install:backend": "cd backend && pip install -r requirements.txt",
-    "setup": "npm install && npm run install:backend",
+    "dev": "vite",
+    "build": "vite build && electron-builder",
     "format": "prettier --write ."
   },
   "devDependencies": {
@@ -44,7 +25,6 @@
     "typescript": "^5.4.2",
     "vite": "^6.3.4",
     "vite-plugin-electron": "^0.29.0",
-    "vite-plugin-electron-renderer": "^0.14.5",
     "vite-plugin-static-copy": "^3.1.1",
     "vitest": "^3.2.4",
     "vue": "^3.4.21",
@@ -56,7 +36,8 @@
     "electron-store": "^8.1.0",
     "pinia": "^3.0.3",
     "prettier": "^3.6.2",
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "bufferutil": "^4.0.9"
   },
   "build": {
     "appId": "com.echotap.app",
@@ -65,15 +46,15 @@
       "output": "dist",
       "buildResources": "build"
     },
+    "compression": "maximum",
+    "removePackageScripts": true,
+    "removePackageKeywords": true,
     "files": [
-      "src/**/*",
-      "backend/**/*",
-      "node_modules/**/*",
-      "!backend/__pycache__",
-      "!backend/.pytest_cache",
-      "!backend/venv",
-      "!backend/*.pyc",
-      "!backend/**/*.pyc"
+      "dist-electron/**/*",
+      "dist/renderer/**/*",
+      "package.json",
+      "!**/*.map",
+      "!**/*.tsbuildinfo"
     ],
     "extraResources": [
       {

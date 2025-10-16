@@ -3,19 +3,15 @@ import { ref, computed, watch } from 'vue'
 import { useAudioProcessing } from '../composables/useAudioProcessing.js'
 
 export const useTranscriptionStore = defineStore('transcription', () => {
-  // Initialize audio processing (only for main window that controls recording)
   let audioProcessing = null
 
-  // Check if this window should have audio processing (main window only)
   const urlParams = new URLSearchParams(window.location.search)
-  const isMainWindow = !urlParams.get('mode') // No mode param = main window
-  // Window initialized
+  const isMainWindow = !urlParams.get('mode')
 
   if (isMainWindow) {
     audioProcessing = useAudioProcessing()
   }
 
-  // Global state from main process (reactive)
   const globalState = ref({
     isRecording: false,
     isListening: false,
@@ -33,10 +29,7 @@ export const useTranscriptionStore = defineStore('transcription', () => {
     charCount: 0,
   })
 
-  // Session management (local to each window)
   const sessions = ref([])
-
-  // Computed properties that expose global state reactively
   const isRecording = computed(() => globalState.value.isRecording)
   const isListening = computed(
     () =>
@@ -73,41 +66,30 @@ export const useTranscriptionStore = defineStore('transcription', () => {
   })
 
 
-  // Global State Management via IPC
   const initializeGlobalState = async () => {
     if (window.electronAPI) {
       try {
-        // Get initial state from main process
         const initialState = await window.electronAPI.getAppState()
         globalState.value = { ...globalState.value, ...initialState }
 
-        // Listen for state changes from main process
         window.electronAPI.onAppStateChanged((event, newState) => {
-          // Prevent recording state interference from window operations
-          // Only update recording state if we're not the main window or if recording actually changed
           const currentRecording = globalState.value.isRecording
           const newRecording = newState.isRecording
           
           if (isMainWindow && currentRecording && !newRecording && audioProcessing?.isRecording?.value) {
-            // Main window: Don't let external state changes stop our active recording
-            // Protecting recording state from external interference
             const stateWithoutRecording = { ...newState }
             delete stateWithoutRecording.isRecording
             delete stateWithoutRecording.isListening
             globalState.value = { ...globalState.value, ...stateWithoutRecording }
           } else {
-            // Normal state update
             globalState.value = { ...globalState.value, ...newState }
           }
         })
 
-        // Set up audio processing state synchronization for main window
         if (isMainWindow && audioProcessing) {
           watch(
             () => audioProcessing.isRecording.value,
             (newRecording, oldRecording) => {
-              // Audio processing recording state changed
-              // Update global state via IPC
               if (window.electronAPI) {
                 window.electronAPI.updateAppState({ isRecording: newRecording })
               }
@@ -129,10 +111,7 @@ export const useTranscriptionStore = defineStore('transcription', () => {
     }
   }
 
-  // Legacy backend message handler (for non-state messages like sessions_list)
   const handleBackendMessage = message => {
-    // The main process now handles all state-related messages
-    // This is only for legacy compatibility with non-state messages
     switch (message.type) {
       case 'sessions_list':
         if (message.sessions) {
@@ -140,31 +119,26 @@ export const useTranscriptionStore = defineStore('transcription', () => {
         }
         break
       case 'session_completed':
-        // Auto-refresh archive when session is completed
         console.log(
           '🔄 Session completed, refreshing archive...',
           message.session_id
         )
-        loadSessions() // Remove await since this function isn't async
+        loadSessions()
         break
       case 'session_transcript':
       case 'session_deleted':
-        // Forward to any listeners that need these messages
         break
       case 'hotkey_toggle_recording':
-        // Handle hotkey toggle from backend
         if (isMainWindow && audioProcessing) {
           console.log('⌨️ Hotkey toggle received, toggling recording...')
           audioProcessing.toggleRecording()
         }
         break
       default:
-        // All other messages are handled by main process now
         break
     }
   }
 
-  // Actions - Only main window can control recording
   const toggleRecording = async () => {
     if (!isMainWindow) {
       return
@@ -173,9 +147,6 @@ export const useTranscriptionStore = defineStore('transcription', () => {
     try {
       if (audioProcessing) {
         await audioProcessing.toggleRecording()
-
-        // State synchronization is handled automatically by the watchers above
-      } else {
       }
     } catch (error) {}
   }
@@ -192,23 +163,17 @@ export const useTranscriptionStore = defineStore('transcription', () => {
     }
   }
 
-  // Utility functions for backend compatibility
   const queryBackendStatus = async () => {
     if (window.electronAPI) {
       await window.electronAPI.sendToBackend({ type: 'get_status' })
     }
   }
 
-  // Initialize global state when store is created
   initializeGlobalState()
 
-  // Cleanup
-  const cleanup = () => {
-    // Cleanup function for store
-  }
+  const cleanup = () => {}
 
   return {
-    // Reactive State (from global state via IPC)
     isConnected,
     isRecording,
     isListening,
@@ -224,23 +189,13 @@ export const useTranscriptionStore = defineStore('transcription', () => {
     currentSession,
     wordCount,
     charCount,
-
-    // Local State
     sessions,
-
-    // Computed
     formattedTime,
-
-    // Actions
     toggleRecording,
     queryBackendStatus,
     loadSessions,
     initializeGlobalState,
-
-    // Legacy compatibility
     handleBackendMessage,
-
-    // Cleanup
     cleanup,
   }
 })

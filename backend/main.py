@@ -34,9 +34,7 @@ from models import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Resource Manager for proper cleanup and memory management
 class ResourceManager:
-    """Manages application resources and prevents memory leaks"""
     
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -47,30 +45,23 @@ class ResourceManager:
         self.is_speech_active = False
         self.last_transcription_time = 0
         
-        # Constants
         self.MIN_AUDIO_DURATION = 1.0
         self.SAMPLE_RATE = 16000
-        self.MAX_SESSION_DURATION = 3600  # 1 hour max session
-        
-        # Session tracking for cleanup
+        self.MAX_SESSION_DURATION = 3600
         self.session_start_time: Optional[float] = None
         self.last_cleanup_time = 0
-        self.CLEANUP_INTERVAL = 300  # Cleanup every 5 minutes
+        self.CLEANUP_INTERVAL = 300
     
     def add_connection(self, connection: WebSocket) -> None:
-        """Add a WebSocket connection"""
         self.active_connections.append(connection)
         logger.info(f"Client connected. Total connections: {len(self.active_connections)}")
     
     def remove_connection(self, connection: WebSocket) -> None:
-        """Remove a WebSocket connection"""
         if connection in self.active_connections:
             self.active_connections.remove(connection)
         logger.info(f"Client removed. Total connections: {len(self.active_connections)}")
     
     def start_session(self, session_id: str) -> None:
-        """Start a new session with proper cleanup of previous session"""
-        # Cleanup previous session
         self.cleanup_session()
         
         self.current_session_id = session_id
@@ -83,14 +74,12 @@ class ResourceManager:
         logger.info(f"Started new session: {session_id}")
     
     def end_session(self) -> str:
-        """End current session and return session ID"""
         session_id = self.current_session_id
         self.cleanup_session()
         logger.info(f"Ended session: {session_id}")
         return session_id
     
     def cleanup_session(self) -> None:
-        """Clean up current session resources"""
         self.current_session_id = None
         self.current_session_transcript = ""
         self.is_recording = False
@@ -98,35 +87,28 @@ class ResourceManager:
         self.session_start_time = None
         self.audio_buffer.clear()
         
-        # Force garbage collection
         import gc
         gc.collect()
     
     def should_cleanup(self) -> bool:
-        """Check if periodic cleanup is needed"""
         current_time = time.time()
         return (current_time - self.last_cleanup_time) > self.CLEANUP_INTERVAL
     
     def periodic_cleanup(self) -> None:
-        """Perform periodic cleanup to prevent memory leaks"""
         try:
             current_time = time.time()
             
-            # Check for overly long sessions
             if self.session_start_time and (current_time - self.session_start_time) > self.MAX_SESSION_DURATION:
                 logger.warning("Session exceeded maximum duration, forcing cleanup")
                 self.cleanup_session()
             
-            # Clear old audio buffer chunks
-            if len(self.audio_buffer) > 50:  # Keep only recent chunks
+            if len(self.audio_buffer) > 50:
                 while len(self.audio_buffer) > 25:
                     self.audio_buffer.popleft()
                 logger.info("Cleaned up old audio buffer chunks")
             
-            # Update cleanup time
             self.last_cleanup_time = current_time
             
-            # Force garbage collection
             import gc
             gc.collect()
             
@@ -136,7 +118,6 @@ class ResourceManager:
             logger.error(f"Error during periodic cleanup: {e}")
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get resource usage statistics"""
         return {
             "active_connections": len(self.active_connections),
             "current_session_id": self.current_session_id,
@@ -146,33 +127,26 @@ class ResourceManager:
             "session_duration": time.time() - self.session_start_time if self.session_start_time else 0
         }
 
-# Global resource manager instance
 resource_manager = ResourceManager()
 
-# Global instances
 active_connections = resource_manager.active_connections
 audio_capture: Optional[AudioCapture] = None
 transcription_engine: Optional[TranscriptionEngine] = None
 database: Optional[DatabaseManager] = None
 main_event_loop: Optional[asyncio.AbstractEventLoop] = None
 
-# Session state variables
 is_recording: bool = False
 current_session_id: Optional[str] = None
 current_session_transcript: str = ""
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan management with proper resource cleanup"""
     global transcription_engine, database, audio_capture, main_event_loop
     
-    # Startup
     logger.info("Starting EchoTap backend...")
     
-    # Store reference to main event loop for audio callback
     main_event_loop = asyncio.get_running_loop()
     
-    # Initialize database
     app_data_dir = get_app_data_dir()
     db_path = app_data_dir / "db" / "echotap.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -180,37 +154,29 @@ async def lifespan(app: FastAPI):
     database = DatabaseManager(str(db_path))
     await database.initialize()
     
-    # Initialize transcription engine
     transcription_engine = TranscriptionEngine()
     
-    # Preheat model to eliminate cold start delay
     await transcription_engine.preheat_model()
     
-    # Initialize audio capture for backend recording
     audio_capture = AudioCapture()
     
     logger.info("✅ Audio capture ready for VAD-based transcription")
     logger.info("EchoTap backend started successfully with audio capture support")
     
-    # Start periodic cleanup task
     cleanup_task = asyncio.create_task(periodic_cleanup_task())
     
     yield
     
-    # Shutdown
     logger.info("Shutting down EchoTap backend...")
     
-    # Cancel cleanup task
     cleanup_task.cancel()
     try:
         await cleanup_task
     except asyncio.CancelledError:
         pass
     
-    # Cleanup active sessions
     resource_manager.cleanup_session()
     
-    # Cleanup engines with proper resource management
     if database:
         try:
             await database.close()
@@ -219,7 +185,6 @@ async def lifespan(app: FastAPI):
         
     if transcription_engine:
         try:
-            # Clean up transcription engine resources
             if hasattr(transcription_engine, 'cleanup'):
                 transcription_engine.cleanup()
         except Exception as e:
@@ -227,23 +192,20 @@ async def lifespan(app: FastAPI):
     
     if audio_capture:
         try:
-            # Stop any active recording
             if hasattr(audio_capture, 'stop_recording'):
                 await audio_capture.stop_recording()
         except Exception as e:
             logger.error(f"Error stopping audio capture: {e}")
         
-    # Final garbage collection
     import gc
     gc.collect()
     
     logger.info("EchoTap backend shutdown complete")
 
 async def periodic_cleanup_task():
-    """Background task for periodic resource cleanup"""
     while True:
         try:
-            await asyncio.sleep(300)  # Run every 5 minutes
+            await asyncio.sleep(300)
             if resource_manager.should_cleanup():
                 resource_manager.periodic_cleanup()
         except asyncio.CancelledError:
@@ -252,17 +214,15 @@ async def periodic_cleanup_task():
             logger.error(f"Error in periodic cleanup task: {e}")
 
 def get_app_data_dir() -> Path:
-    """Get application data directory based on platform"""
     if sys.platform == "win32":
         return Path(os.environ.get("APPDATA", "")) / "EchoTap"
     elif sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "EchoTap"
-    else:  # Linux
+    else:
         return Path.home() / ".config" / "EchoTap"
 
 
 async def broadcast_message(message: Dict):
-    """Broadcast message to all connected WebSocket clients"""
     if not active_connections:
         return
     
@@ -276,7 +236,6 @@ async def broadcast_message(message: Dict):
             logger.error(f"Error sending message to client: {e}")
             disconnected.append(connection)
     
-    # Remove disconnected clients
     for connection in disconnected:
         if connection in active_connections:
             active_connections.remove(connection)
@@ -307,7 +266,6 @@ async def handle_frontend_audio(message: Dict):
             audio_bytes = bytes(audio_data)
             logger.debug(f"Received audio from frontend: {len(audio_bytes)} bytes")
         
-        # Create session if not exists
         if not current_session_id and database:
             session_data = SessionData(
                 source="microphone",
@@ -317,7 +275,6 @@ async def handle_frontend_audio(message: Dict):
             current_session_transcript = ""
             logger.info(f"🆔 Created new session: {current_session_id}")
         
-        # Set recording state when we receive audio
         if not is_recording:
             is_recording = True
             await broadcast_message({
