@@ -49,6 +49,7 @@
     "compression": "maximum",
     "removePackageScripts": true,
     "removePackageKeywords": true,
+    "publish": null,
     "files": [
       "dist-electron/**/*",
       "dist/renderer/**/*",

@@ -3,8 +3,6 @@ name: Build EchoTap
 on:
   push:
     branches: [ main, develop ]
-  pull_request:
-    branches: [ main ]
   release:
     types: [ published ]
 
@@ -38,6 +36,7 @@ jobs:
       run: npm run build
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
     
     - name: Upload Windows artifacts
       uses: actions/upload-artifact@v4
@@ -74,6 +73,7 @@ jobs:
       run: npm run build
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
     
     - name: Upload macOS artifacts
       uses: actions/upload-artifact@v4
@@ -115,6 +115,7 @@ jobs:
       run: npm run build
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
     
     - name: Upload Linux artifacts
       uses: actions/upload-artifact@v4

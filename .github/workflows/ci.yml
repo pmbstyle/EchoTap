@@ -10,13 +10,6 @@ on:
       - '.gitignore'
       - '.github/**'
       - '!.github/workflows/ci.yml'
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
-      - '.idea'
-      - '.vscode'
-      - '.gitignore'
 
 jobs:
   build:
