@@ -20,9 +20,11 @@ jobs:
         cache: 'npm'
     
     - name: Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: '3.11'
+        cache: 'pip'
+        allow-prereleases: false
     
     - name: Install dependencies
       run: npm ci
@@ -30,6 +32,9 @@ jobs:
     - name: Install Python dependencies
       run: |
         cd backend
+        python -m venv venv
+        source venv/bin/activate
+        pip install --upgrade pip wheel setuptools
         pip install -r requirements.txt
     
     - name: Build application
@@ -57,9 +62,26 @@ jobs:
         cache: 'npm'
     
     - name: Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: '3.11'
+        cache: 'pip'
+        allow-prereleases: false
+    
+    - name: Install system dependencies (macOS)
+      run: |
+        # Update Homebrew
+        brew update
+        
+        # Install build dependencies
+        brew install cmake portaudio pkg-config
+        
+        # Set environment variables for PortAudio
+        echo "PORT_AUDIO_INCLUDE_DIR=$(brew --prefix portaudio)/include" >> $GITHUB_ENV
+        echo "PORT_AUDIO_LIBRARY_DIR=$(brew --prefix portaudio)/lib" >> $GITHUB_ENV
+        echo "PKG_CONFIG_PATH=$(brew --prefix portaudio)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+        echo "CPPFLAGS=-I$(brew --prefix portaudio)/include" >> $GITHUB_ENV
+        echo "LDFLAGS=-L$(brew --prefix portaudio)/lib" >> $GITHUB_ENV
     
     - name: Install dependencies
       run: npm ci
@@ -67,7 +89,38 @@ jobs:
     - name: Install Python dependencies
       run: |
         cd backend
-        pip install -r requirements.txt
+        python -m venv venv
+        source venv/bin/activate
+        
+        # Set environment variables for PortAudio (modern approach)
+        export CFLAGS="-I$(brew --prefix portaudio)/include"
+        export LDFLAGS="-L$(brew --prefix portaudio)/lib"
+        export PKG_CONFIG_PATH="$(brew --prefix portaudio)/lib/pkgconfig:$PKG_CONFIG_PATH"
+        
+        # Install PyAudio with environment variables
+        echo "Installing PyAudio with PortAudio environment variables..."
+        pip install --upgrade pip wheel setuptools
+        pip install pyaudio --verbose --no-cache-dir || {
+          echo "Standard installation failed, trying with explicit compiler flags..."
+          
+          # Alternative: Use pip install with build environment
+          pip install --no-binary=pyaudio pyaudio --verbose --no-cache-dir || {
+            echo "Building PyAudio from source with explicit setup..."
+            
+            # Create a temporary setup.cfg for PyAudio
+            echo "[build_ext]" > setup.cfg
+            echo "include_dirs = /opt/homebrew/include" >> setup.cfg
+            echo "library_dirs = /opt/homebrew/lib" >> setup.cfg
+            echo "libraries = portaudio" >> setup.cfg
+            
+            # Install with custom setup.cfg
+            pip install pyaudio --verbose --no-cache-dir
+            rm -f setup.cfg
+          }
+        }
+        
+        # Install other dependencies
+        pip install -r requirements.txt --verbose --no-deps
     
     - name: Build application
       run: npm run build
@@ -94,14 +147,16 @@ jobs:
         cache: 'npm'
     
     - name: Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: '3.11'
+        cache: 'pip'
+        allow-prereleases: false
     
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y portaudio19-dev python3-dev build-essential
+        sudo apt-get install -y portaudio19-dev python3-dev build-essential cmake pkg-config
     
     - name: Install dependencies
       run: npm ci
@@ -109,6 +164,9 @@ jobs:
     - name: Install Python dependencies
       run: |
         cd backend
+        python -m venv venv
+        source venv/bin/activate
+        pip install --upgrade pip wheel setuptools
         pip install -r requirements.txt
     
     - name: Build application
@@ -136,9 +194,11 @@ jobs:
         cache: 'npm'
     
     - name: Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: '3.11'
+        cache: 'pip'
+        allow-prereleases: false
     
     - name: Install dependencies
       run: npm ci
@@ -146,6 +206,9 @@ jobs:
     - name: Install Python dependencies
       run: |
         cd backend
+        python -m venv venv
+        source venv/bin/activate
+        pip install --upgrade pip wheel setuptools
         pip install -r requirements.txt
     
     - name: Run frontend tests
