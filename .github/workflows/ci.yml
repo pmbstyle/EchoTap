@@ -35,9 +35,14 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+          allow-prereleases: false
 
       - name: Install System Dependencies
         run: |
+          # Check system Python version
+          echo "System Python version: $(python3 --version 2>/dev/null || echo 'Python3 not found')"
+          echo "System Python path: $(which python3 2>/dev/null || echo 'Python3 not found')"
+          
           if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
             # Update Homebrew
             brew update
@@ -77,8 +82,12 @@ jobs:
           # Test if we can find the header file
           if [ -f "$(brew --prefix portaudio)/include/portaudio.h" ]; then
             echo "✅ PortAudio header found"
+            echo "Header file contents (first 10 lines):"
+            head -10 "$(brew --prefix portaudio)/include/portaudio.h"
           else
             echo "❌ PortAudio header not found"
+            echo "Contents of include directory:"
+            ls -la "$(brew --prefix portaudio)/include/" || echo "Include directory not found"
             exit 1
           fi
           
@@ -87,6 +96,10 @@ jobs:
             echo "PortAudio pkg-config info:"
             pkg-config --cflags --libs portaudio || echo "pkg-config portaudio failed"
           fi
+          
+          # Verify Homebrew paths
+          echo "Homebrew prefix: $(brew --prefix)"
+          echo "Homebrew Cellar: $(brew --cellar)"
         shell: bash
 
       - name: Create CI Requirements File
@@ -120,34 +133,36 @@ jobs:
             # Verify Python version in venv
             echo "Virtual environment Python version: $(python --version)"
             
-            # For macOS, try a different approach for PyAudio
+            # For macOS, use modern 2025 approach for PyAudio
             if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
               pip install --upgrade pip wheel setuptools
               
-              # Try to install PyAudio using a pre-built wheel first
-              echo "Trying to install PyAudio with pre-built wheel..."
-              pip install pyaudio --only-binary=all --verbose || {
-                echo "Pre-built wheel failed, trying to build from source with explicit paths..."
+              # Set environment variables for PortAudio (modern approach)
+              export CFLAGS="-I$(brew --prefix portaudio)/include"
+              export LDFLAGS="-L$(brew --prefix portaudio)/lib"
+              export PKG_CONFIG_PATH="$(brew --prefix portaudio)/lib/pkgconfig:$PKG_CONFIG_PATH"
+              
+              # Try to install PyAudio with environment variables
+              echo "Installing PyAudio with PortAudio environment variables..."
+              pip install pyaudio --verbose --no-cache-dir || {
+                echo "Standard installation failed, trying with explicit compiler flags..."
                 
-                # Set environment variables for the build
-                export CPPFLAGS="-I$(brew --prefix portaudio)/include"
-                export LDFLAGS="-L$(brew --prefix portaudio)/lib"
-                export PKG_CONFIG_PATH="$(brew --prefix portaudio)/lib/pkgconfig:$PKG_CONFIG_PATH"
-                
-                # Create a temporary directory for PyAudio build
-                mkdir -p /tmp/pyaudio_build
-                cd /tmp/pyaudio_build
-                
-                # Download and build PyAudio manually
-                pip download pyaudio --no-deps
-                tar -xzf pyaudio-*.tar.gz
-                cd pyaudio-*
-                
-                # Build with explicit paths
-                python setup.py build_ext --include-dirs="$(brew --prefix portaudio)/include" --library-dirs="$(brew --prefix portaudio)/lib"
-                python setup.py install
-                
-                cd /Users/runner/work/EchoTap/EchoTap/backend
+                # Alternative: Use pip install with build environment
+                pip install --no-binary=pyaudio pyaudio --verbose --no-cache-dir || {
+                  echo "Building PyAudio from source with explicit setup..."
+                  
+                  # Create a temporary setup.cfg for PyAudio
+                  cat > setup.cfg << 'EOF'
+[build_ext]
+include_dirs = /opt/homebrew/include
+library_dirs = /opt/homebrew/lib
+libraries = portaudio
+EOF
+                  
+                  # Install with custom setup.cfg
+                  pip install pyaudio --verbose --no-cache-dir
+                  rm -f setup.cfg
+                }
               }
               
               # Install other dependencies
