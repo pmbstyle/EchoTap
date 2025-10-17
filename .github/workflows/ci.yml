@@ -100,6 +100,10 @@ jobs:
 
       - name: Install Python Dependencies  
         run: |
+          # Verify Python version
+          echo "Python version: $(python --version)"
+          echo "Python executable: $(which python)"
+          
           python -m pip install --upgrade pip
           cd backend
           python -m venv venv
@@ -113,15 +117,45 @@ jobs:
             # Unix systems: Use standard activation
             source venv/bin/activate
             
-            # For macOS, ensure PortAudio environment variables are available
-            if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-              export CPPFLAGS="-I$(brew --prefix portaudio)/include"
-              export LDFLAGS="-L$(brew --prefix portaudio)/lib"
-              export PKG_CONFIG_PATH="$(brew --prefix portaudio)/lib/pkgconfig:$PKG_CONFIG_PATH"
-            fi
+            # Verify Python version in venv
+            echo "Virtual environment Python version: $(python --version)"
             
-            pip install --upgrade pip wheel setuptools
-            pip install -r requirements-ci.txt --verbose
+            # For macOS, try a different approach for PyAudio
+            if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+              pip install --upgrade pip wheel setuptools
+              
+              # Try to install PyAudio using a pre-built wheel first
+              echo "Trying to install PyAudio with pre-built wheel..."
+              pip install pyaudio --only-binary=all --verbose || {
+                echo "Pre-built wheel failed, trying to build from source with explicit paths..."
+                
+                # Set environment variables for the build
+                export CPPFLAGS="-I$(brew --prefix portaudio)/include"
+                export LDFLAGS="-L$(brew --prefix portaudio)/lib"
+                export PKG_CONFIG_PATH="$(brew --prefix portaudio)/lib/pkgconfig:$PKG_CONFIG_PATH"
+                
+                # Create a temporary directory for PyAudio build
+                mkdir -p /tmp/pyaudio_build
+                cd /tmp/pyaudio_build
+                
+                # Download and build PyAudio manually
+                pip download pyaudio --no-deps
+                tar -xzf pyaudio-*.tar.gz
+                cd pyaudio-*
+                
+                # Build with explicit paths
+                python setup.py build_ext --include-dirs="$(brew --prefix portaudio)/include" --library-dirs="$(brew --prefix portaudio)/lib"
+                python setup.py install
+                
+                cd /Users/runner/work/EchoTap/EchoTap/backend
+              }
+              
+              # Install other dependencies
+              pip install -r requirements-ci.txt --verbose --no-deps
+            else
+              pip install --upgrade pip wheel setuptools
+              pip install -r requirements-ci.txt --verbose
+            fi
           fi
           
           echo "✅ Core Python dependencies installed successfully"
