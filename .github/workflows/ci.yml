@@ -152,12 +152,10 @@ jobs:
                   echo "Building PyAudio from source with explicit setup..."
                   
                   # Create a temporary setup.cfg for PyAudio
-                  cat > setup.cfg << 'EOF'
-[build_ext]
-include_dirs = /opt/homebrew/include
-library_dirs = /opt/homebrew/lib
-libraries = portaudio
-EOF
+                  echo "[build_ext]" > setup.cfg
+                  echo "include_dirs = /opt/homebrew/include" >> setup.cfg
+                  echo "library_dirs = /opt/homebrew/lib" >> setup.cfg
+                  echo "libraries = portaudio" >> setup.cfg
                   
                   # Install with custom setup.cfg
                   pip install pyaudio --verbose --no-cache-dir
