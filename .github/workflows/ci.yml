@@ -39,23 +39,53 @@ jobs:
       - name: Install System Dependencies
         run: |
           if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            # Check if cmake is already installed
-            if command -v cmake >/dev/null 2>&1; then
-              echo "✅ CMake already installed: $(cmake --version)"
-            else
-              echo "Installing CMake..."
-              brew install cmake
-            fi
+            # Update Homebrew
+            brew update
             
-            # Install portaudio
-            brew install portaudio
+            # Install build dependencies
+            brew install cmake portaudio pkg-config
+            
+            # Set environment variables for PortAudio
+            echo "PORT_AUDIO_INCLUDE_DIR=$(brew --prefix portaudio)/include" >> $GITHUB_ENV
+            echo "PORT_AUDIO_LIBRARY_DIR=$(brew --prefix portaudio)/lib" >> $GITHUB_ENV
+            echo "PKG_CONFIG_PATH=$(brew --prefix portaudio)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+            echo "CPPFLAGS=-I$(brew --prefix portaudio)/include" >> $GITHUB_ENV
+            echo "LDFLAGS=-L$(brew --prefix portaudio)/lib" >> $GITHUB_ENV
+            
+            # Verify PortAudio installation
+            echo "PortAudio include directory: $(brew --prefix portaudio)/include"
+            echo "PortAudio library directory: $(brew --prefix portaudio)/lib"
+            ls -la "$(brew --prefix portaudio)/include/portaudio.h" || echo "PortAudio header not found!"
             
           elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
             sudo apt-get update
-            sudo apt-get install -y portaudio19-dev python3-dev cmake build-essential
+            sudo apt-get install -y portaudio19-dev python3-dev cmake build-essential pkg-config
           elif [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             # Windows: CMake and build tools are handled by setup-python and pip
             echo "Windows build dependencies handled by pip"
+          fi
+        shell: bash
+
+      - name: Verify PortAudio Installation (macOS only)
+        if: matrix.os == 'macos-latest'
+        run: |
+          echo "Verifying PortAudio installation..."
+          echo "PortAudio version: $(brew list portaudio --versions)"
+          echo "PortAudio include path: $(brew --prefix portaudio)/include"
+          echo "PortAudio lib path: $(brew --prefix portaudio)/lib"
+          
+          # Test if we can find the header file
+          if [ -f "$(brew --prefix portaudio)/include/portaudio.h" ]; then
+            echo "✅ PortAudio header found"
+          else
+            echo "❌ PortAudio header not found"
+            exit 1
+          fi
+          
+          # Test pkg-config
+          if command -v pkg-config >/dev/null 2>&1; then
+            echo "PortAudio pkg-config info:"
+            pkg-config --cflags --libs portaudio || echo "pkg-config portaudio failed"
           fi
         shell: bash
 
@@ -82,6 +112,14 @@ jobs:
           else
             # Unix systems: Use standard activation
             source venv/bin/activate
+            
+            # For macOS, ensure PortAudio environment variables are available
+            if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+              export CPPFLAGS="-I$(brew --prefix portaudio)/include"
+              export LDFLAGS="-L$(brew --prefix portaudio)/lib"
+              export PKG_CONFIG_PATH="$(brew --prefix portaudio)/lib/pkgconfig:$PKG_CONFIG_PATH"
+            fi
+            
             pip install --upgrade pip wheel setuptools
             pip install -r requirements-ci.txt --verbose
           fi
